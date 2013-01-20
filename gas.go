@@ -57,33 +57,42 @@ func Log(level LogLevel, format string, args ...interface{}) {
 	}
 }
 
-// Request context comes with embedded standard net/http arguments as well as the captured URL variables (if any), and has some convenience methods attached.
+// Request context. All incoming requests are boxed into a *Gas and passed to
+// handler functions. Comes with embedded standard net/http arguments as well
+// as the captured URL variables (if any), and has some convenience methods
+// attached.
 type Gas struct {
 	http.ResponseWriter
 	*http.Request
 	Args map[string]string
 }
 
-// Simple wrapper around http.ServeFile
+// Simple wrapper around `http.ServeFile`.
 func (g *Gas) ServeFile(path string) {
 	http.ServeFile(g.ResponseWriter, g.Request, path)
 }
 
-// Simple wrapper around http.Redirect
+// Simple wrapper around `http.Redirect`.
 func (g *Gas) Redirect(path string, code int) {
 	http.Redirect(g.ResponseWriter, g.Request, path, code)
 }
 
+// Serve up an error page from /templates/errors. Templates in that directory
+// should have the naming scheme `<code>.tmpl`, where code is the numeric HTTP
+// status code (such as `404.tmpl`). The provided error is supplied as the
+// template context.
 func (g *Gas) Error(code int, err error) {
 	g.WriteHeader(code)
 	code_s := strconv.Itoa(code)
 	g.Render("errors", code_s, Error{g.URL.Path, err})
 }
 
+// Simple wrapper around http.SetCookie.
 func (g *Gas) SetCookie(cookie *http.Cookie) {
 	http.SetCookie(g.ResponseWriter, cookie)
 }
 
+// Write the given value as JSON to the client.
 func (g *Gas) JSON(val interface{}) error {
 	data, err := json.Marshal(val)
 	if err != nil {
@@ -94,6 +103,9 @@ func (g *Gas) JSON(val interface{}) error {
 	return err
 }
 
+// Run the provided subcommand, if any. If no subcommand given, start the
+// server running on the given port. This should be the last call in the main()
+// function.
 func Ignition(port int) {
 	defer DB.Close()
 

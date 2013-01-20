@@ -26,6 +26,7 @@ var (
 
 const sessid_len = 64
 
+// Describes a secure session to be stored temporarily or long-term.
 type Session struct {
 	Name    string
 	Sessid  []byte
@@ -41,6 +42,9 @@ func parse_sessid(sessid string) ([]byte, []byte, error) {
 	return p[:sessid_len], p[sessid_len:], nil
 }
 
+// A Store is the generalized interface used to store sessions. Any type that
+// implements this interface can be used to store sessions.
+// TODO: implement a file-based store
 type Store interface {
 	Get(string) (*Session, error)
 	Add([]byte, []byte, time.Time) error
@@ -48,6 +52,7 @@ type Store interface {
 	Drop(string) error
 }
 
+// A session store that stores sessions in the database.
 type DBStore struct {
 	table string
 }
@@ -172,6 +177,8 @@ func (self *CookieAuth) new_session(name []byte) (*http.Cookie, error) {
 	return cookie, nil
 }
 
+// Returns true if the user (identified by the request context) is logged in,
+// false otherwise.
 func (self *CookieAuth) SignedIn(g *Gas) bool {
 	cookie, err := g.Cookie("s")
 	if err != nil {
@@ -187,6 +194,8 @@ func (self *CookieAuth) SignedIn(g *Gas) bool {
 	return true
 }
 
+// Signs the user in by creating a new session and setting a cookie on the
+// client.
 func (self *CookieAuth) SignIn(g *Gas) error {
 	if self.SignedIn(g) {
 		return nil
@@ -218,6 +227,7 @@ func (self *CookieAuth) SignIn(g *Gas) error {
 	return nil
 }
 
+// Signs the user out, destroying the associated session.
 func (self *CookieAuth) SignOut(g *Gas) {
 	cookie, err := g.Cookie("s")
 	if err != nil {
@@ -227,6 +237,8 @@ func (self *CookieAuth) SignOut(g *Gas) {
 	g.SetCookie(&http.Cookie{Name: "s", Value: "deleted", MaxAge: -1})
 }
 
+// The name of the table used to store users.
+// TODO: this is a really lame way to do this. Needs a more civilized API.
 var UsersTable = "users"
 
 // Add a user to the database.

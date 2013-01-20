@@ -215,10 +215,11 @@ func InsertQuery(query string, src interface{}) {
 }
 */
 
+// A Model is the description of a type as used to marshal rows returned from
+// the database into types. 
 // TODO: make the system ignore the existence of anonymous fields; that is,
 // pretend that the fields of an anonymous field are directly inside of the
 // parent. XXX only one indirection or recursive?
-
 type Model struct {
 	//table   string
 	//actions map[string]*sql.Stmt
@@ -235,6 +236,9 @@ func (self *Model) makefields() []interface{} {
 
 var models = make(map[reflect.Type]*Model)
 
+// Adds the description of a type to the model cache for future use. Only
+// pointers to structs or pointers to slices must be used! Anything else will
+// probably panic.
 func Register(model interface{}) {
 	register(reflect.TypeOf(model))
 }
@@ -286,7 +290,9 @@ func marshal_row(dest interface{}, fields []interface{}, row interface {
 	return nil
 }
 
-// will panic if `data` does not match the data in the row returned by `query`
+// Select a single row into `data`, caching the type for further use if not
+// already cached. SelectRow will panic if `data` does not match the data in
+// the row returned by `query`.
 func SelectRow(data interface{}, query string, args ...interface{}) error {
 	_, model, err := maybe_register(data)
 	if err != nil {
@@ -298,8 +304,9 @@ func SelectRow(data interface{}, query string, args ...interface{}) error {
 	return marshal_row(data, fields, row)
 }
 
-// baaaad things will happen if `data` is not a slice of struct pointers ([]*T)
-// returns the number of rows queried
+// Select multiple rows into `data`, caching the type for further use if not
+// already cached. SelectRows will panic if `data` does not match the data in
+// the rows returned by `query`.
 func SelectRows(data interface{}, query string, args ...interface{}) (int, error) {
 	data_type, model, err := maybe_register(data)
 	if err != nil {

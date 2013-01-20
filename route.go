@@ -7,6 +7,7 @@ import (
 	"time"
 )
 
+// All request handlers implemented should have this signature.
 type Handler func(*Gas)
 
 type matcher struct {
@@ -115,10 +116,14 @@ var (
 	routers        = make(map[string]*Router)
 )
 
+// Router is the URL router. Attached methods may be chained for easy adding of
+// routes.
 type Router struct {
 	routes []*route
 }
 
+// Create a new Router that responds to the given subdomains. If no subdomains
+// are given, it assumes the base host.
 func New(subdomains ...string) (r *Router) {
 	r = new(Router)
 	r.routes = make([]*route, 0)

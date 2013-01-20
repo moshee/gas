@@ -10,7 +10,7 @@ import (
 
 // Each module has one associated template. It contains all of the templates
 // in its named directory inside `templates`. Each template should be
-// enclosed in a `{define "name"} … {end}` so that they can be referred to by
+// enclosed in a `{{ define "name" }} … {{ end }}` so that they can be referred to by
 // the other templates.
 var Templates = make(map[string]*template.Template)
 
@@ -40,6 +40,7 @@ func exec_template(path, name string, w io.Writer, data interface{}) {
 	Templates[path].Lookup(name).Execute(w, data)
 }
 
+// Render the given template by name out of the given directory.
 func (g *Gas) Render(path, name string, data interface{}) {
 	exec_template(path, name, g.ResponseWriter, data)
 }

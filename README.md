@@ -11,9 +11,12 @@ My personal homegrown web framework, take 2.
 #### To do
 
 - Currently the ORM thingie only supports `SELECT` operations. Other stuff has to be done directly with `database/sql` (the package uses a single exported database instance). I'll either add the other CRUD operations or revamp the API entirely (because quite frankly it sucks).
+- Easier table join types by indirecting through embedded struct types used as models transparently
+- There is a bunch of commented (tried but failed) code in `models.go` but I feel like I could salvage some of it.
 - Tests, tests, tests!
 - More useful subcommands (currently only `makeuser` for creating users)
 - User authorization in addition to authentication
+- Signal handling (like `SIGHUP` for re-parsing and reloading templates)
 - SSL
 - Markdown
 - More tests
