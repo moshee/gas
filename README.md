@@ -17,4 +17,5 @@ My personal homegrown web framework, take 2.
 - SSL
 - Markdown
 - More tests
+- Documentation (for myself more than anyone else)
 - I'll think of more later

@@ -13,7 +13,16 @@ import (
 	"time"
 )
 
-var max_age = 7 * 24 * time.Hour
+var (
+	max_age = 7 * 24 * time.Hour
+	// HashCost is the cost passed into the scrypt hash function. It is
+	// represented as the power of 2 (aka HashCost=9 means 2<<9 iterations).
+	// It should be set as desired in the main() function of the importing
+	// client. A value of 13 (the default) is a good number to start with,
+	// and should be increased as hardware gets faster (see
+	// http://www.tarsnap.com/scrypt.html for more info)
+	HashCost uint = 13
+)
 
 const sessid_len = 64
 
@@ -129,6 +138,7 @@ func (self *FileStore) Drop(sessid string) error {
 }
 */
 
+// Provides facilities to store and use sessions.
 type CookieAuth struct {
 	path   string
 	domain string
@@ -219,6 +229,7 @@ func (self *CookieAuth) SignOut(g *Gas) {
 
 var UsersTable = "users"
 
+// Add a user to the database.
 func NewUser(user, pass string) error {
 	hash, salt, err := NewHash([]byte(pass))
 	if err != nil {
@@ -229,6 +240,7 @@ func NewUser(user, pass string) error {
 	return err
 }
 
+// Check if the supplied passphrase matches the expected hash using the salt.
 func VerifyHash(supplied, expected, salt []byte) bool {
 	//Log(Notice, "verifying '%s' : '%s'", user, pass)
 	hashed := Hash(supplied, salt)
@@ -236,12 +248,14 @@ func VerifyHash(supplied, expected, salt []byte) bool {
 	//	return fmt.Errorf("Invalid username or password: got hash %v, expected %v (salt %v)", hashed, stored_pass, stored_salt)
 }
 
+// Hash the given passphrase using the salt provided.
 func Hash(pass []byte, salt []byte) []byte {
 	// TODO: magic numbers
-	hash, _ := scrypt.Key(pass, salt, 2<<13, 8, 1, 32)
+	hash, _ := scrypt.Key(pass, salt, 2<<HashCost, 8, 1, 32)
 	return hash
 }
 
+// Create a new hash and random salt from the supplied password.
 func NewHash(pass []byte) (hash, salt []byte, err error) {
 	salt = make([]byte, 16)
 	rand.Read(salt)
