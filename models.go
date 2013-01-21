@@ -216,7 +216,8 @@ func InsertQuery(query string, src interface{}) {
 */
 
 // A Model is the description of a type as used to marshal rows returned from
-// the database into types. 
+// the database into types. Model only pays attention to field indices, not
+// names. This may change in the future (like using struct tags for this).
 // TODO: make the system ignore the existence of anonymous fields; that is,
 // pretend that the fields of an anonymous field are directly inside of the
 // parent. XXX only one indirection or recursive?

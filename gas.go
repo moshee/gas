@@ -1,23 +1,27 @@
 package gas
 
 import (
+	"encoding/json"
+	"flag"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"runtime/debug"
 	"strconv"
-	"encoding/json"
-	"flag"
 )
 
 var (
-//flag_syncdb = flag.Bool("gas.syncdb", false, "Create database tables from registered models")
+	//flag_syncdb = flag.Bool("gas.syncdb", false, "Create database tables from registered models")
 	flag_verbosity = flag.Int("gas.loglevel", 0, "How much information to log (0=none, 1=fatal, 2=warning, 3=notice, 4=debug)")
+	sigchan        = make(chan os.Signal, 2)
 )
 
 func init() {
 	flag.Parse()
 	Verbosity = LogLevel(*flag_verbosity)
+
+	signal.Notify(sigchan)
 }
 
 type Error struct {
@@ -103,12 +107,7 @@ func (g *Gas) JSON(val interface{}) error {
 	return err
 }
 
-// Run the provided subcommand, if any. If no subcommand given, start the
-// server running on the given port. This should be the last call in the main()
-// function.
-func Ignition(port int) {
-	defer DB.Close()
-
+func do_subcommands() bool {
 	// TODO subcommands
 	args := flag.Args()
 	if len(args) > 0 {
@@ -122,27 +121,36 @@ func Ignition(port int) {
 				Log(Fatal, "%s: %v", args[0], err)
 			}
 			Log(Notice, "User '%s' created.", args[1])
-			return
+			return true
 		}
 	}
+	return false
+}
+
+func handle_signals(c chan os.Signal) {
+	for {
+		if f := signal_funcs[<-c]; f != nil {
+			f()
+		}
+	}
+}
+
+// Run the provided subcommand, if any. If no subcommand given, start the
+// server running on the given port. This should be the last call in the main()
+// function.
+func Ignition(port int) {
+	defer DB.Close()
+
+	if do_subcommands() {
+		return
+	}
+	go handle_signals(sigchan)
 
 	if UsersTable != "" {
 		if _, err := DB.Exec("CREATE TABLE IF NOT EXISTS " + UsersTable + " ( id serial PRIMARY KEY, name text, pass bytea, salt bytea )"); err != nil {
-			log.Fatalln("Couldn't create users table")
+			Log(Fatal, "Couldn't create users table")
 		}
 	}
-	/*
-		if *flag_syncdb {
-			log.Println("Syncing database tables with registered models...")
-			for _, model := range models {
-				if err := model.Create(); err != nil {
-					log.Fatalln(err)
-				}
-			}
-			log.Println("Done.")
-		}
-	*/
-	// TODO: handle SIGHUP/SIGINT/SIGSTOP/etc
 	port_string := ":" + strconv.Itoa(port)
 	http.HandleFunc("/", dispatch)
 	println("let's go!")

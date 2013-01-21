@@ -12,13 +12,17 @@ import (
 // in its named directory inside `templates`. Each template should be
 // enclosed in a `{{ define "name" }} … {{ end }}` so that they can be referred to by
 // the other templates.
-var Templates = make(map[string]*template.Template)
+var (
+	Templates map[string]*template.Template
+	template_dir = "templates"
+)
 
 func init() {
-	parse_templates("templates")
+	Templates = parse_templates("templates")
 }
 
-func parse_templates(base string) {
+func parse_templates(base string) map[string]*template.Template {
+	ts := make(map[string]*template.Template)
 	fis, err := ioutil.ReadDir(base)
 	if err != nil {
 		log.Fatalf("Couldn't open templates directory: %v\n", err)
@@ -30,10 +34,11 @@ func parse_templates(base string) {
 		name := fi.Name()
 		t, err := template.New(name).ParseGlob(filepath.Join(base, name, "*.tmpl"))
 		if err != nil {
-			log.Printf("Warning: failed to parse templates in %s: %v\n", name, err)
+			Log(Warning, "failed to parse templates in %s: %v\n", name, err)
 		}
-		Templates[name] = t
+		ts[name] = t
 	}
+	return ts
 }
 
 func exec_template(path, name string, w io.Writer, data interface{}) {

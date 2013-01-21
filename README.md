@@ -7,6 +7,7 @@ My personal homegrown web framework, take 2.
 - Rudimentary ORM implementation (more on that in TODO)
 - User authentication (passwords stored in database using `scrypt`)
 - Persistent sessions via cookies (session IDs also stored in database (or custom store possible) using `scrypt`)
+- Rudimentary signal handling
 
 #### To do
 
@@ -16,9 +17,9 @@ My personal homegrown web framework, take 2.
 - Tests, tests, tests!
 - More useful subcommands (currently only `makeuser` for creating users)
 - User authorization in addition to authentication
-- Signal handling (like `SIGHUP` for re-parsing and reloading templates)
 - SSL
 - Markdown
 - More tests
 - Documentation (for myself more than anyone else)
+- Analytics (referer, reverse DNS, location, and the like - no tracking cookies because that's lame)
 - I'll think of more later
