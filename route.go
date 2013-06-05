@@ -183,6 +183,6 @@ func dispatch(w http.ResponseWriter, r *http.Request) {
 
 	if values, handler := router.match(r); handler != nil {
 		handler(&Gas{w, r, values})
-		Log(Debug, "%v\t%s\t%s %s%s", time.Now().Sub(now), r.RemoteAddr, r.Method, r.Host, r.URL.Path)
+		Log(Debug, "%v\t%s\t%s %s%s\tfrom %s : %s", time.Now().Sub(now), r.RemoteAddr, r.Method, r.Host, r.URL.Path, r.Header.Get("Referer"), r.Header.Get("Range"))
 	}
 }

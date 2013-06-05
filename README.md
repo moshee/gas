@@ -22,4 +22,4 @@ My personal homegrown web framework, take 2.
 - More tests
 - Documentation (for myself more than anyone else)
 - Analytics (referer, reverse DNS, location, and the like - no tracking cookies because that's lame)
-- I'll think of more later
+- Handler func panic recovery (500 error or something)

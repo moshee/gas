@@ -143,6 +143,28 @@ func (self *FileStore) Drop(sessid string) error {
 }
 */
 
+func NewSession(store Store) (id64 string, err error) {
+	now := time.Now()
+	session_name := md5.New()
+	session_name.Write([]byte(now.String()))
+
+	session_salt := make([]byte, 4)
+	rand.Read(session_salt)
+	session_name.Write(session_salt)
+
+	name := session_name.Sum(nil)
+
+	sessid := make([]byte, sessid_len)
+	_, err = rand.Read(sessid)
+	if err != nil {
+		return "", err
+	}
+
+	err = store.Add(name, sessid, now.Add(max_age))
+	id64 = base64.StdEncoding.EncodeToString(append(sessid, name...))
+	return
+}
+
 // Provides facilities to store and use sessions.
 type CookieAuth struct {
 	path   string
@@ -154,9 +176,8 @@ func NewCookieAuth(path, domain string, store Store) *CookieAuth {
 	return &CookieAuth{path, domain, store}
 }
 
-func (self *CookieAuth) new_session(name []byte) (*http.Cookie, error) {
-	sessid := make([]byte, sessid_len)
-	_, err := rand.Read(sessid)
+func (self *CookieAuth) new_session() (*http.Cookie, error) {
+	sessid, err := NewSession(self.store)
 	if err != nil {
 		return nil, err
 	}
@@ -165,14 +186,12 @@ func (self *CookieAuth) new_session(name []byte) (*http.Cookie, error) {
 
 	cookie := &http.Cookie{
 		Name: "s",
-		Value:    base64.StdEncoding.EncodeToString(append(sessid, name...)),
+		Value:    sessid,
 		Path:     self.path,
 		Domain:   self.domain,
 		MaxAge:   int(age / time.Second),
 		HttpOnly: true,
 	}
-
-	self.store.Add(name, sessid, time.Now().Add(age))
 
 	return cookie, nil
 }
@@ -204,22 +223,11 @@ func (self *CookieAuth) SignIn(g *Gas) error {
 	if len(user) == 0 {
 		return fmt.Errorf("No username supplied")
 	}
-	pass := []byte(g.FormValue("pass"))
-	var (
-		stored_pass []byte
-		stored_salt []byte
-	)
-	row := DB.QueryRow("SELECT pass, salt FROM "+UsersTable+" WHERE name = $1", user)
-	if err := row.Scan(&stored_pass, &stored_salt); err != nil {
-		return err
-	}
-	if !VerifyHash(pass, stored_pass, stored_salt) {
+	if !VerifyPass(user, g.FormValue("pass")) {
 		return fmt.Errorf("Invalid username or password")
 	}
 
-	session_name := md5.New()
-	session_name.Write([]byte(time.Now().String()))
-	cookie, err := self.new_session(session_name.Sum(nil))
+	cookie, err := self.new_session()
 	if err != nil {
 		return err
 	}
@@ -273,4 +281,16 @@ func NewHash(pass []byte) (hash, salt []byte, err error) {
 	rand.Read(salt)
 	hash = Hash([]byte(pass), salt)
 	return
+}
+
+func VerifyPass(user, pass string) bool {
+	var (
+		stored_pass []byte
+		stored_salt []byte
+	)
+	row := DB.QueryRow("SELECT pass, salt FROM "+UsersTable+" WHERE name = $1", user)
+	if err := row.Scan(&stored_pass, &stored_salt); err != nil {
+		return false
+	}
+	return VerifyHash([]byte(pass), stored_pass, stored_salt)
 }

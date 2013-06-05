@@ -1,11 +1,13 @@
 package gas
 
 import (
-	"text/template"
+	"html/template"
 	"io"
 	"io/ioutil"
 	"log"
 	"path/filepath"
+	"github.com/russross/blackfriday"
+	"sync"
 )
 
 // Each module has one associated template. It contains all of the templates
@@ -13,7 +15,8 @@ import (
 // enclosed in a `{{ define "name" }} … {{ end }}` so that they can be referred to by
 // the other templates.
 var (
-	Templates map[string]*template.Template
+	Templates    map[string]*template.Template
+	templateLock sync.Mutex
 	template_dir = "templates"
 )
 
@@ -32,7 +35,21 @@ func parse_templates(base string) map[string]*template.Template {
 			continue
 		}
 		name := fi.Name()
-		t, err := template.New(name).ParseGlob(filepath.Join(base, name, "*.tmpl"))
+		t, err := template.New(name).Funcs(
+			template.FuncMap{
+				"eq": func(a, b string) bool {
+					return a == b
+				},
+				"string": func(b []byte) string {
+					return string(b)
+				},
+				"raw": func(s string) template.HTML {
+					return template.HTML(s)
+				},
+				"markdown": func(b []byte) template.HTML {
+					return template.HTML(blackfriday.MarkdownCommon(b))
+				},
+			}).ParseGlob(filepath.Join(base, name, "*.tmpl"))
 		if err != nil {
 			Log(Warning, "failed to parse templates in %s: %v\n", name, err)
 		}
@@ -42,10 +59,19 @@ func parse_templates(base string) map[string]*template.Template {
 }
 
 func exec_template(path, name string, w io.Writer, data interface{}) {
-	Templates[path].Lookup(name).Execute(w, data)
+	t := Templates[path].Lookup(name)
+	if t == nil {
+		panic("No such template: " + path + "/" + name)
+	}
+	if err := t.Execute(w, data); err != nil {
+		// TODO: this
+		panic(err)
+	}
 }
 
 // Render the given template by name out of the given directory.
 func (g *Gas) Render(path, name string, data interface{}) {
+	templateLock.Lock()
+	defer templateLock.Unlock()
 	exec_template(path, name, g.ResponseWriter, data)
 }

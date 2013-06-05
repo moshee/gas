@@ -14,6 +14,7 @@ import (
 var (
 	//flag_syncdb = flag.Bool("gas.syncdb", false, "Create database tables from registered models")
 	flag_verbosity = flag.Int("gas.loglevel", 0, "How much information to log (0=none, 1=fatal, 2=warning, 3=notice, 4=debug)")
+	flag_port      = flag.Int("gas.port", 80, "Port to listen on")
 	sigchan        = make(chan os.Signal, 2)
 )
 
@@ -87,8 +88,10 @@ func (g *Gas) Redirect(path string, code int) {
 // template context.
 func (g *Gas) Error(code int, err error) {
 	g.WriteHeader(code)
-	code_s := strconv.Itoa(code)
-	g.Render("errors", code_s, Error{g.URL.Path, err})
+	if err != nil {
+		code_s := strconv.Itoa(code)
+		g.Render("errors", code_s, Error{g.URL.Path, err})
+	}
 }
 
 // Simple wrapper around http.SetCookie.
@@ -96,15 +99,16 @@ func (g *Gas) SetCookie(cookie *http.Cookie) {
 	http.SetCookie(g.ResponseWriter, cookie)
 }
 
+// Simple wrapper around (http.ResponseWriter).Header().Set
+func (g *Gas) SetHeader(key, vals string) {
+	g.ResponseWriter.Header().Set(key, vals)
+}
+
 // Write the given value as JSON to the client.
 func (g *Gas) JSON(val interface{}) error {
-	data, err := json.Marshal(val)
-	if err != nil {
-		return err
-	}
 	g.ResponseWriter.Header().Set("Content-Type", "application/json")
-	_, err = g.ResponseWriter.Write(data)
-	return err
+	e := json.NewEncoder(g.ResponseWriter)
+	return e.Encode(val)
 }
 
 func do_subcommands() bool {
@@ -138,7 +142,7 @@ func handle_signals(c chan os.Signal) {
 // Run the provided subcommand, if any. If no subcommand given, start the
 // server running on the given port. This should be the last call in the main()
 // function.
-func Ignition(port int) {
+func Ignition() {
 	defer DB.Close()
 
 	if do_subcommands() {
@@ -151,7 +155,7 @@ func Ignition(port int) {
 			Log(Fatal, "Couldn't create users table")
 		}
 	}
-	port_string := ":" + strconv.Itoa(port)
+	port_string := ":" + strconv.Itoa(*flag_port)
 	http.HandleFunc("/", dispatch)
 	println("let's go!")
 	Log(Fatal, "%v", http.ListenAndServe(port_string, nil))
