@@ -49,6 +49,9 @@ func parse_templates(base string) map[string]*template.Template {
 				"markdown": func(b []byte) template.HTML {
 					return template.HTML(blackfriday.MarkdownCommon(b))
 				},
+				"smarkdown": func(s string) template.HTML {
+					return template.HTML(blackfriday.MarkdownCommon([]byte(s)))
+				},
 			}).ParseGlob(filepath.Join(base, name, "*.tmpl"))
 		if err != nil {
 			Log(Warning, "failed to parse templates in %s: %v\n", name, err)
