@@ -35,6 +35,7 @@ func parse_templates(base string) map[string]*template.Template {
 			continue
 		}
 		name := fi.Name()
+		Log(Debug, "found template dir '%s'", name)
 		t, err := template.New(name).Funcs(
 			template.FuncMap{
 				"eq": func(a, b string) bool {
