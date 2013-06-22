@@ -201,7 +201,7 @@ func (self *CookieAuth) new_session() (*http.Cookie, error) {
 func (self *CookieAuth) Session(g *Gas) *Session {
 	cookie, err := g.Cookie("s")
 	if err != nil {
-		return false
+		return nil
 	}
 
 	session, err := self.store.Get(cookie.Value)
@@ -216,7 +216,7 @@ func (self *CookieAuth) Session(g *Gas) *Session {
 // Signs the user in by creating a new session and setting a cookie on the
 // client.
 func (self *CookieAuth) SignIn(g *Gas) error {
-	if self.SignedIn(g) {
+	if self.Session(g) != nil {
 		return nil
 	}
 	user := g.FormValue("user")
