@@ -148,6 +148,13 @@ func Ignition() {
 	if do_subcommands() {
 		return
 	}
+
+	if initFuncs != nil {
+		for _, f := range initFuncs {
+			f()
+		}
+	}
+
 	go handle_signals(sigchan)
 
 	if UsersTable != "" {
@@ -159,4 +166,25 @@ func Ignition() {
 	http.HandleFunc("/", dispatch)
 	println("let's go!")
 	Log(Fatal, "%v", http.ListenAndServe(port_string, nil))
+}
+
+var initFuncs []func()
+
+// Add list of funcs to run before server is launched.
+// They are run in the order that they are added.
+func Init(funcs ...func()) {
+	if initFuncs == nil {
+		initFuncs = make([]func(), 0, len(funcs))
+	}
+	initFuncs = append(initFuncs, funcs...)
+}
+
+// TODO: this
+type Subcommand struct {
+	Name string
+	Do   func() error
+}
+
+func RegisterSubcommand(commands ...*Subcommand) {
+
 }

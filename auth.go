@@ -185,7 +185,7 @@ func (self *CookieAuth) new_session() (*http.Cookie, error) {
 	age := 7 * 24 * time.Hour
 
 	cookie := &http.Cookie{
-		Name: "s",
+		Name:     "s",
 		Value:    sessid,
 		Path:     self.path,
 		Domain:   self.domain,
@@ -198,7 +198,7 @@ func (self *CookieAuth) new_session() (*http.Cookie, error) {
 
 // Returns true if the user (identified by the request context) is logged in,
 // false otherwise.
-func (self *CookieAuth) SignedIn(g *Gas) bool {
+func (self *CookieAuth) Session(g *Gas) *Session {
 	cookie, err := g.Cookie("s")
 	if err != nil {
 		return false
@@ -208,9 +208,9 @@ func (self *CookieAuth) SignedIn(g *Gas) bool {
 
 	if err != nil || time.Now().After(session.Expires) {
 		self.SignOut(g)
-		return false
+		return nil
 	}
-	return true
+	return session
 }
 
 // Signs the user in by creating a new session and setting a cookie on the
