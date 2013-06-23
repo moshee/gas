@@ -32,6 +32,7 @@ type Session struct {
 	Sessid  []byte
 	Salt    []byte
 	Expires time.Time
+	Who     string
 }
 
 func parse_sessid(sessid string) ([]byte, []byte, error) {
@@ -47,7 +48,7 @@ func parse_sessid(sessid string) ([]byte, []byte, error) {
 // TODO: implement a file-based store
 type Store interface {
 	Get(string) (*Session, error)
-	Add([]byte, []byte, time.Time) error
+	Add([]byte, []byte, time.Time, string) error
 	Touch(string) error
 	Drop(string) error
 }
@@ -58,7 +59,8 @@ type DBStore struct {
 }
 
 func NewDBStore(table string) (Store, error) {
-	_, err := DB.Exec("CREATE TABLE IF NOT EXISTS " + table + " ( name bytea UNIQUE NOT NULL, sessid bytea UNIQUE NOT NULL, salt bytea NOT NULL, expires timestamp with time zone )")
+	_, err := DB.Exec("CREATE TABLE IF NOT EXISTS " + table +
+		" ( name bytea UNIQUE NOT NULL, sessid bytea UNIQUE NOT NULL, salt bytea NOT NULL, expires timestamp with time zone, who integer references " + UsersTable + "(id) )")
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +73,7 @@ func (self *DBStore) Get(sessid string) (*Session, error) {
 		return nil, err
 	}
 	session := new(Session)
-	if err := SelectRow(session, "SELECT * FROM "+self.table+" WHERE name=$1", name); err != nil {
+	if err := SelectRow(session, "SELECT s.name, s.sessid, s.salt, s.expires, u.name FROM "+self.table+" s, users u WHERE s.name=$1 AND s.who = u.id", name); err != nil {
 		return nil, err
 	}
 
@@ -82,12 +84,12 @@ func (self *DBStore) Get(sessid string) (*Session, error) {
 	return session, nil
 }
 
-func (self *DBStore) Add(name, sessid []byte, expires time.Time) error {
+func (self *DBStore) Add(name, sessid []byte, expires time.Time, username string) error {
 	hash, salt, err := NewHash(sessid)
 	if err != nil {
 		return err
 	}
-	_, err = DB.Exec("INSERT INTO "+self.table+" VALUES ( $1, $2, $3, $4 )", name, hash, salt, expires)
+	_, err = DB.Exec("INSERT INTO "+self.table+" VALUES ( $1, $2, $3, $4, (SELECT id FROM "+UsersTable+" WHERE name = $5) )", name, hash, salt, expires, username)
 	return err
 }
 
@@ -143,7 +145,7 @@ func (self *FileStore) Drop(sessid string) error {
 }
 */
 
-func NewSession(store Store) (id64 string, err error) {
+func NewSession(store Store, who string) (id64 string, err error) {
 	now := time.Now()
 	session_name := md5.New()
 	session_name.Write([]byte(now.String()))
@@ -160,7 +162,7 @@ func NewSession(store Store) (id64 string, err error) {
 		return "", err
 	}
 
-	err = store.Add(name, sessid, now.Add(max_age))
+	err = store.Add(name, sessid, now.Add(max_age), who)
 	id64 = base64.StdEncoding.EncodeToString(append(sessid, name...))
 	return
 }
@@ -176,8 +178,8 @@ func NewCookieAuth(path, domain string, store Store) *CookieAuth {
 	return &CookieAuth{path, domain, store}
 }
 
-func (self *CookieAuth) new_session() (*http.Cookie, error) {
-	sessid, err := NewSession(self.store)
+func (self *CookieAuth) new_session(who string) (*http.Cookie, error) {
+	sessid, err := NewSession(self.store, who)
 	if err != nil {
 		return nil, err
 	}
@@ -207,6 +209,7 @@ func (self *CookieAuth) Session(g *Gas) *Session {
 	session, err := self.store.Get(cookie.Value)
 
 	if err != nil || time.Now().After(session.Expires) {
+		Log(Warning, "(*CookieAuth).Session: %v", err)
 		self.SignOut(g)
 		return nil
 	}
@@ -223,11 +226,11 @@ func (self *CookieAuth) SignIn(g *Gas) error {
 	if len(user) == 0 {
 		return fmt.Errorf("No username supplied")
 	}
-	if !VerifyPass(user, g.FormValue("pass")) {
-		return fmt.Errorf("Invalid username or password")
+	if err := VerifyPass(user, g.FormValue("pass")); err != nil {
+		return err
 	}
 
-	cookie, err := self.new_session()
+	cookie, err := self.new_session(user)
 	if err != nil {
 		return err
 	}
@@ -283,14 +286,17 @@ func NewHash(pass []byte) (hash, salt []byte, err error) {
 	return
 }
 
-func VerifyPass(user, pass string) bool {
+func VerifyPass(user, pass string) error {
 	var (
 		stored_pass []byte
 		stored_salt []byte
 	)
 	row := DB.QueryRow("SELECT pass, salt FROM "+UsersTable+" WHERE name = $1", user)
 	if err := row.Scan(&stored_pass, &stored_salt); err != nil {
-		return false
+		return err
 	}
-	return VerifyHash([]byte(pass), stored_pass, stored_salt)
+	if VerifyHash([]byte(pass), stored_pass, stored_salt) {
+		return fmt.Errorf("Invalid username or password.")
+	}
+	return nil
 }
