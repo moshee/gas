@@ -295,7 +295,7 @@ func VerifyPass(user, pass string) error {
 	if err := row.Scan(&stored_pass, &stored_salt); err != nil {
 		return err
 	}
-	if VerifyHash([]byte(pass), stored_pass, stored_salt) {
+	if !VerifyHash([]byte(pass), stored_pass, stored_salt) {
 		return fmt.Errorf("Invalid username or password.")
 	}
 	return nil

@@ -1,12 +1,12 @@
 package gas
 
 import (
+	md "github.com/russross/blackfriday"
 	"html/template"
 	"io"
 	"io/ioutil"
 	"log"
 	"path/filepath"
-	"github.com/russross/blackfriday"
 	"sync"
 )
 
@@ -22,6 +22,17 @@ var (
 
 func init() {
 	Templates = parse_templates("templates")
+}
+
+func markdown(in []byte) template.HTML {
+	html := md.HTML_GITHUB_BLOCKCODE | md.HTML_USE_SMARTYPANTS
+	ext := md.EXTENSION_NO_INTRA_EMPHASIS |
+		md.EXTENSION_TABLES |
+		md.EXTENSION_FENCED_CODE |
+		md.EXTENSION_STRIKETHROUGH |
+		md.EXTENSION_FOOTNOTES
+	r := md.HtmlRenderer(html, "", "")
+	return template.HTML(md.Markdown(in, r, ext))
 }
 
 func parse_templates(base string) map[string]*template.Template {
@@ -48,10 +59,10 @@ func parse_templates(base string) map[string]*template.Template {
 					return template.HTML(s)
 				},
 				"markdown": func(b []byte) template.HTML {
-					return template.HTML(blackfriday.MarkdownCommon(b))
+					return markdown(b)
 				},
 				"smarkdown": func(s string) template.HTML {
-					return template.HTML(blackfriday.MarkdownCommon([]byte(s)))
+					return markdown([]byte(s))
 				},
 			}).ParseGlob(filepath.Join(base, name, "*.tmpl"))
 		if err != nil {

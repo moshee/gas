@@ -9,18 +9,30 @@ import (
 	"os/signal"
 	"runtime/debug"
 	"strconv"
+	"time"
 )
 
 var (
 	//flag_syncdb = flag.Bool("gas.syncdb", false, "Create database tables from registered models")
-	flag_verbosity = flag.Int("gas.loglevel", 0, "How much information to log (0=none, 1=fatal, 2=warning, 3=notice, 4=debug)")
+	flag_verbosity = flag.Int("gas.loglevel", 2, "How much information to log (0=none, 1=fatal, 2=warning, 3=notice, 4=debug)")
 	flag_port      = flag.Int("gas.port", 80, "Port to listen on")
+	flag_log       = flag.String("gas.log", "", "File to log to (log disabled for empty path)")
+	flag_daemon    = flag.Bool("gas.daemon", false, "Internal use")
 	sigchan        = make(chan os.Signal, 2)
 )
 
 func init() {
 	flag.Parse()
 	Verbosity = LogLevel(*flag_verbosity)
+
+	if *flag_log != "" {
+		logfile, err := os.OpenFile(*flag_log, os.O_TRUNC|os.O_CREATE, 0)
+		if err != nil {
+			log.Fatal(err)
+			os.Exit(1)
+		}
+		logger = log.New(logfile, "", log.LstdFlags|log.Lshortfile)
+	}
 
 	signal.Notify(sigchan)
 }
@@ -40,7 +52,10 @@ const (
 	Debug
 )
 
-var Verbosity LogLevel = None
+var (
+	Verbosity LogLevel = None
+	logger    *log.Logger
+)
 
 func (l LogLevel) String() string {
 	switch l {
@@ -53,8 +68,12 @@ func (l LogLevel) String() string {
 }
 
 func Log(level LogLevel, format string, args ...interface{}) {
+	if logger == nil {
+		return
+	}
+
 	if Verbosity >= level {
-		log.Printf(level.String()+format, args...)
+		logger.Printf(level.String()+format, args...)
 		if Verbosity == Fatal {
 			debug.PrintStack()
 			os.Exit(1)
@@ -157,15 +176,22 @@ func Ignition() {
 
 	go handle_signals(sigchan)
 
-	if UsersTable != "" {
-		if _, err := DB.Exec("CREATE TABLE IF NOT EXISTS " + UsersTable + " ( id serial PRIMARY KEY, name text, pass bytea, salt bytea )"); err != nil {
-			Log(Fatal, "Couldn't create users table")
+	// TODO: move all this first-run shit to a new thing
+	/*
+		if UsersTable != "" {
+			if _, err := DB.Exec("CREATE TABLE IF NOT EXISTS " + UsersTable + " ( id serial PRIMARY KEY, name text, pass bytea, salt bytea )"); err != nil {
+				Log(Fatal, "Couldn't create users table")
+			}
 		}
-	}
+	*/
 	port_string := ":" + strconv.Itoa(*flag_port)
 	http.HandleFunc("/", dispatch)
-	println("let's go!")
-	Log(Fatal, "%v", http.ListenAndServe(port_string, nil))
+
+	srv := &http.Server{
+		Addr:        port_string,
+		ReadTimeout: 30 * time.Second,
+	}
+	Log(Fatal, "%v", srv.ListenAndServe())
 }
 
 var initFuncs []func()

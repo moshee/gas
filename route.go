@@ -175,6 +175,9 @@ func (r *Router) Delete(pattern string, handler Handler) *Router {
 }
 
 func dispatch(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+	r.Close = true
+
 	now := time.Now()
 	router := routers[strings.Split(r.Host, ":")[0]]
 	if router == nil {
@@ -187,5 +190,6 @@ func dispatch(w http.ResponseWriter, r *http.Request) {
 		g := &Gas{w, r, values}
 		g.Error(404, nil)
 	}
+
 	Log(Debug, "%v\t%s\t%s %s%s\tfrom %s", time.Now().Sub(now), r.RemoteAddr, r.Method, r.Host, r.URL.Path, r.Header.Get("Referer"))
 }
