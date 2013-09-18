@@ -176,6 +176,8 @@ func Ignition() {
 
 	go handle_signals(sigchan)
 
+	Templates = parse_templates("templates")
+
 	// TODO: move all this first-run shit to a new thing
 	/*
 		if UsersTable != "" {
