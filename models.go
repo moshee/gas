@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+
 //	"unsafe"
 )
 
@@ -22,6 +23,7 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
+	DB.SetMaxIdleConns(10)
 }
 
 /*
@@ -175,7 +177,7 @@ func (model *Model) Exec(name string, data interface{}, args ...interface{}) (sq
 		newval.Set(val.Field(i))
 	}
 
-	stmt.Exec(append(fields, 
+	stmt.Exec(append(fields,
 }
 
 
@@ -224,7 +226,7 @@ func InsertQuery(query string, src interface{}) {
 type Model struct {
 	//table   string
 	//actions map[string]*sql.Stmt
-	fields  []reflect.Type
+	fields []reflect.Type
 }
 
 func (self *Model) makefields() []interface{} {
