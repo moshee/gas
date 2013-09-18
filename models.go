@@ -2,7 +2,7 @@ package gas
 
 import (
 	"database/sql"
-	_ "github.com/bmizerany/pq"
+	_ "github.com/lib/pq"
 	//	"log"
 	"errors"
 	"fmt"
