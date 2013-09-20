@@ -25,14 +25,21 @@ func init() {
 	flag.Parse()
 	Verbosity = LogLevel(*flag_verbosity)
 
+	var (
+		logfile *os.File
+		err     error
+	)
+
 	if *flag_log != "" {
-		logfile, err := os.OpenFile(*flag_log, os.O_TRUNC|os.O_CREATE, 0)
+		logfile, err = os.OpenFile(*flag_log, os.O_TRUNC|os.O_CREATE, 0)
 		if err != nil {
 			log.Fatal(err)
 			os.Exit(1)
 		}
-		logger = log.New(logfile, "", log.LstdFlags|log.Lshortfile)
+	} else {
+		logfile = os.Stdout
 	}
+	logger = log.New(logfile, "", log.LstdFlags|log.Lshortfile)
 
 	signal.Notify(sigchan)
 }
@@ -176,7 +183,7 @@ func Ignition() {
 
 	go handle_signals(sigchan)
 
-	Templates = parse_templates("templates")
+	Templates = parse_templates("./templates")
 
 	// TODO: move all this first-run shit to a new thing
 	/*
