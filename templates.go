@@ -1,6 +1,7 @@
 package gas
 
 import (
+	"fmt"
 	md "github.com/russross/blackfriday"
 	"html/template"
 	"io"
@@ -19,9 +20,6 @@ var (
 	template_dir     = "templates"
 	template_funcmap map[string]template.FuncMap
 	global_funcmap   = template.FuncMap{
-		"eq": func(a, b string) bool {
-			return a == b
-		},
 		"string": func(b []byte) string {
 			return string(b)
 		},
@@ -106,13 +104,31 @@ func parse_templates(base string) map[string]*template.Template {
 }
 
 func exec_template(path, name string, w io.Writer, data interface{}) {
-	t := Templates[path].Lookup(name)
+	group := Templates[path]
+	if group == nil {
+		Log(Warning, "Failed to access template group \"%s\"", path)
+		fmt.Fprintf(w, "Error: template group \"%s\" not found. Did it fail to compile?", path)
+		return
+	}
+
+	t := group.Lookup(name)
 	if t == nil {
-		panic("No such template: " + path + "/" + name)
+		Log(Warning, "No such template: %s/%s", path, name)
+		fmt.Fprintf(w, "Error: no such template: %s/%s", path, name)
+		return
 	}
 	if err := t.Execute(w, data); err != nil {
-		// TODO: this
-		panic(err)
+		t = Templates[path].Lookup(name + "-error")
+		if t == nil {
+			Log(Warning, "Template %s/%s has no error template", path, name)
+			fmt.Fprintf(w, "Error: failed to serve error page for %s/%s (error template not found)", path, name)
+			return
+		}
+		if err = t.Execute(w, err); err != nil {
+			Log(Warning, "Failed to render error template for %s/%s (%v)", path, name, err)
+			fmt.Fprintf(w, "Error: failed to serve error page for %s/%s (%v)", path, name, err)
+			return
+		}
 	}
 }
 
