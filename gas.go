@@ -14,14 +14,17 @@ import (
 
 var (
 	//flag_syncdb = flag.Bool("gas.syncdb", false, "Create database tables from registered models")
-	flag_verbosity = flag.Int("gas.loglevel", 2, "How much information to log (0=none, 1=fatal, 2=warning, 3=notice, 4=debug)")
-	flag_port      = flag.Int("gas.port", 80, "Port to listen on")
-	flag_log       = flag.String("gas.log", "", "File to log to (log disabled for empty path)")
-	flag_daemon    = flag.Bool("gas.daemon", false, "Internal use")
-	sigchan        = make(chan os.Signal, 2)
+	flag_verbosity     = flag.Int("gas.loglevel", 2, "How much information to log (0=none, 1=fatal, 2=warning, 3=notice, 4=debug)")
+	flag_port          = flag.Int("gas.port", 80, "Port to listen on")
+	flag_log           = flag.String("gas.log", "", "File to log to (log disabled for empty path)")
+	flag_daemon        = flag.Bool("gas.daemon", false, "Internal use")
+	flag_db_idle_conns = flag.Int("gas.db.conns.idle", 10, "Maximum number of idle DB connections")
+	flag_db_conns      = flag.Int("gas.db.conns.open", 4, "Maximum number of open DB connections")
+	sigchan            = make(chan os.Signal, 2)
 )
 
 func init() {
+	// runtime.GOMAXPROCS(runtime.NumCPU())
 	flag.Parse()
 	Verbosity = LogLevel(*flag_verbosity)
 
@@ -111,7 +114,7 @@ func (g *Gas) Redirect(path string, code int) {
 // Serve up an error page from /templates/errors. Templates in that directory
 // should have the naming scheme `<code>.tmpl`, where code is the numeric HTTP
 // status code (such as `404.tmpl`). The provided error is supplied as the
-// template context.
+// template context in a gas.Error value.
 func (g *Gas) Error(code int, err error) {
 	g.WriteHeader(code)
 	if err != nil {
@@ -169,7 +172,9 @@ func handle_signals(c chan os.Signal) {
 // server running on the given port. This should be the last call in the main()
 // function.
 func Ignition() {
-	defer DB.Close()
+	if DB != nil {
+		defer DB.Close()
+	}
 
 	if do_subcommands() {
 		return

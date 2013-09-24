@@ -175,6 +175,11 @@ func (r *Router) Delete(pattern string, handler Handler) *Router {
 }
 
 func dispatch(w http.ResponseWriter, r *http.Request) {
+	defer func() {
+		if err := recover(); err != nil {
+			g.Error(500, err)
+		}
+	}()
 	defer r.Body.Close()
 	r.Close = true
 
