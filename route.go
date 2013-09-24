@@ -176,7 +176,15 @@ func (r *Router) Delete(pattern string, handler Handler) *Router {
 
 func dispatch(w http.ResponseWriter, r *http.Request) {
 	defer func() {
-		if err := recover(); err != nil {
+		if nuke := recover(); nuke != nil {
+			g := &Gas{w, r, nil}
+			var (
+				err error
+				ok  bool
+			)
+			if err, ok = nuke.(error); !ok {
+				err = fmt.Errorf("%v", nuke)
+			}
 			g.Error(500, err)
 		}
 	}()
