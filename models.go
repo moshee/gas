@@ -83,7 +83,14 @@ func (self model) visitAll(targetFieldVals *[]interface{}, cols *[]string, val r
 		if len(*cols) == 0 {
 			return
 		}
-		if !field.match((*cols)[0]) {
+
+		if !field.match((*cols)[0]) && field.model == nil {
+			// if the name doesn't match, there's a chance that it's because
+			// the target column is in an embedded struct. If the field model
+			// is nil, then that isn't the case.
+			//
+			// If it is indeed the case, we should recurse down into the struct
+			// later.
 			continue
 		}
 

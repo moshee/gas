@@ -15,12 +15,12 @@ type Tester struct {
 }
 
 type Tester2 struct {
-	FieldA   int
-	*Tester3 `sql:"b"`
+	FieldA int
+	*Tester3
 }
 
 type Tester3 struct {
-	*Tester4 `sql:"b"`
+	*Tester4
 }
 
 type Tester4 struct {
