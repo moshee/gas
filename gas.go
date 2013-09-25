@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"runtime/debug"
 	"strconv"
 	"time"
@@ -48,8 +49,9 @@ func init() {
 }
 
 type Error struct {
-	Path string
-	Err  error
+	Path  string
+	Err   error
+	Stack string
 }
 
 type LogLevel int
@@ -119,7 +121,9 @@ func (g *Gas) Error(code int, err error) {
 	g.WriteHeader(code)
 	if err != nil {
 		code_s := strconv.Itoa(code)
-		g.Render("errors", code_s, Error{g.URL.Path, err})
+		buf := make([]byte, 4096)
+		n := runtime.Stack(buf, false)
+		g.Render("errors", code_s, Error{g.URL.Path, err, string(buf[:n])})
 	}
 }
 
