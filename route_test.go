@@ -15,9 +15,9 @@ func mapeq(m1, m2 map[string]string) bool {
 }
 
 type Test struct {
-	pat string
-	url string
-	vals map[string]string
+	pat     string
+	url     string
+	vals    map[string]string
 	matched bool
 }
 
@@ -62,8 +62,8 @@ func TestMatch(t *testing.T) {
 }
 
 type Bench struct {
-	route route
-	url string
+	route *route
+	url   string
 }
 
 var bb []Bench

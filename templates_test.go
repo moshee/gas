@@ -1,12 +1,12 @@
 package gas
 
 import (
-	"testing"
 	"bytes"
+	"testing"
 )
 
 func TestExecTemplates(t *testing.T) {
-	parse_templates("testdata")
+	Templates = parse_templates("./testdata")
 	w := new(bytes.Buffer)
 	exec_template("a", "index", w, "world")
 	got := string(w.Bytes())

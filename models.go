@@ -6,12 +6,10 @@ import (
 	"fmt"
 	_ "github.com/lib/pq"
 	"reflect"
-	"strings"
+	"unicode"
 )
 
-type scanner interface {
-	Scan(dest ...interface{}) error
-}
+var DB *sql.DB
 
 // Opens and initializes database connection.
 //
@@ -54,20 +52,20 @@ type model struct {
 }
 
 // val must be a pointer to a struct
-func (self model) scan(val reflect.Value, row scanner, foundCap int) (int, error) {
+func (self model) scan(val reflect.Value, row *sql.Rows, foundCap int) (int, error) {
 	cols, err := row.Columns()
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	// cut down on allocations by passing the cap back in when scanning into a
 	// slice. Values will still be appended but it will not have to grow. If
 	// foundCap == 0, nothing special will happen.
-	targetFieldVals := make([]reflect.Value, 0, foundCap)
-	self.visitAll(targetFieldVals, cols, val, 0)
-
+	targetFieldVals := make([]interface{}, 0, foundCap)
+	self.visitAll(targetFieldVals, cols, val)
 	foundCap = len(targetFieldVals)
-	return foundCap, nil
+
+	return foundCap, row.Scan(targetFieldVals...)
 }
 
 // recursively populate a list of scan destinations
@@ -78,23 +76,24 @@ func (self model) scan(val reflect.Value, row scanner, foundCap int) (int, error
 // cols is the column names returned in the query.
 //
 // val is the root value that holds the struct waiting to be scanned into.
-//
-// fieldIndex is the current field index in the parent value, if we have
-// recursed downwards in the type tree.
-func (self model) visitAll(targetFieldVals []reflect.Value, cols []string, val reflect.Value, fieldIndex int) {
+func (self model) visitAll(targetFieldVals []interface{}, cols []string, val reflect.Value) {
+	var thisField reflect.Value
+
 	for i, field := range self.fields {
 		if len(cols) == 0 {
 			return
 		}
-		if !field.Match(cols[0]) {
+		if !field.match(cols[0]) {
 			continue
 		}
+
+		thisField = val.Field(i)
 		if field.model != nil {
 			// we have to move down the tree
-			field.model.visitAll(targetFieldVals, cols, val, i)
+			field.model.visitAll(targetFieldVals, cols, thisField)
 		} else {
 			// normal value, add as scan destination
-			targetFieldVals = append(targetFieldVals, val.Field(fieldIndex).Field(i))
+			targetFieldVals = append(targetFieldVals, thisField.Interface())
 		}
 		if len(cols) == 1 {
 			// last column from query result, stop recursing
@@ -109,7 +108,6 @@ type field struct {
 	name string
 	t    reflect.Type
 	*model
-	parent *model
 }
 
 func newField(s reflect.StructField) (f *field) {
@@ -122,7 +120,8 @@ func newField(s reflect.StructField) (f *field) {
 	}
 
 	// recursively register models
-	if m, err := Register(s.Type); err != nil {
+	m, err := Register(s.Type)
+	if err != nil {
 		return f
 	}
 	f.model = m
@@ -134,9 +133,10 @@ func (self *field) match(column string) bool {
 }
 
 var (
-	errNotPtr        = errors.New("gas: register model: target is not a pointer")
-	errNotStruct     = errors.New("gas: register model: target is not a pointer to a struct")
-	errRecursiveType = errors.New("gas: register model: cannot register recursive type (this must be dealt with manually)")
+	errNotPtr        = "gas: register %T: target is not a pointer"
+	errNotStruct     = "gas: register %T: target is not a pointer to a struct"
+	errRecursiveType = "gas: register %T: cannot register recursive type (this must be dealt with manually)"
+	errEmptyStruct   = "gas: register %T: what's the point of registering an empty struct?"
 	errNotSlice      = errors.New("gas: query: destination is not a pointer to a slice")
 )
 
@@ -147,11 +147,11 @@ var (
 // Query and QueryRow if it has not been registered beforehand.
 func Register(t reflect.Type) (*model, error) {
 	if m, ok := modelCache[t]; ok {
-		return m, nil
+		return &m, nil
 	}
 
 	if t.Kind() != reflect.Ptr {
-		return nil, errNotPtr
+		return nil, fmt.Errorf(errNotPtr, t)
 	}
 
 	elem := t.Elem()
@@ -161,23 +161,22 @@ func Register(t reflect.Type) (*model, error) {
 	case reflect.Struct:
 		// continue
 	default:
-		return nil, errNotStruct
+		return nil, fmt.Errorf(errNotStruct, t)
 	}
 
 	m := new(model)
 	numField := elem.NumField()
 	if numField == 0 {
-		return nil, fmt.Errorf("gas: register %T: what's the point of registering an empty struct?")
+		return nil, fmt.Errorf(errEmptyStruct, t)
 	}
 	m.fields = make([]*field, numField)
 
 	for i := 0; i < numField; i++ {
 		structField := elem.Field(i)
 		if structField.Type == elem {
-			return nil, errRecursiveType
+			return nil, fmt.Errorf(errRecursiveType, t)
 		}
 		f := newField(structField)
-		f.parent = m
 		m.fields[i] = f
 	}
 
@@ -189,18 +188,27 @@ func QueryRow(dest interface{}, query string, args ...interface{}) error {
 	if err != nil {
 		return err
 	}
-	row, err := DB.QueryRow(query, args...)
+
+	// we use Query here instead of QueryRow because Query returns a *sql.Row,
+	// which doesn't have a Columns() method. This is weird since sql.Row
+	// actually contains a *sql.Rows as a field, but one that is unexported. So
+	// we just have to get a Rows and only scan one row. (assuming it returns
+	// just one row). This is basically what (*sql.Row).Scan does.
+	rows, err := DB.Query(query, args...)
 	if err != nil {
 		return err
 	}
+	defer rows.Close()
 
 	val := reflect.ValueOf(dest).Elem()
-	_, err = model.scan(val, row, 0)
+
+	rows.Next()
+	_, err = model.scan(val, rows, 0)
 	return err
 }
 
 func Query(slice interface{}, query string, args ...interface{}) error {
-	t := reflect.TypeOf(dest)
+	t := reflect.TypeOf(slice)
 	if t.Kind() != reflect.Ptr && t.Elem().Kind() != reflect.Slice {
 		return errNotSlice
 	}

@@ -73,7 +73,7 @@ func (self *DBStore) Get(sessid string) (*Session, error) {
 		return nil, err
 	}
 	session := new(Session)
-	if err := SelectRow(session, "SELECT s.name, s.sessid, s.salt, s.expires, u.name FROM "+self.table+" s, users u WHERE s.name=$1 AND s.who = u.id", name); err != nil {
+	if err := QueryRow(session, "SELECT s.name, s.sessid, s.salt, s.expires, u.name FROM "+self.table+" s, users u WHERE s.name=$1 AND s.who = u.id", name); err != nil {
 		return nil, err
 	}
 
