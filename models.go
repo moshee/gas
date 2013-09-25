@@ -31,14 +31,19 @@ func toSnake(in string) string {
 	if len(in) == 0 {
 		return ""
 	}
+
 	out := make([]rune, 0, len(in))
+	foundUpper := false
+
 	for i, ch := range in {
 		if unicode.IsUpper(ch) {
-			if i > 0 {
+			if i > 0 && !foundUpper {
 				out = append(out, '_')
 			}
 			out = append(out, unicode.ToLower(ch))
+			foundUpper = true
 		} else {
+			foundUpper = false
 			out = append(out, ch)
 		}
 	}
@@ -76,7 +81,7 @@ func (self model) scan(val reflect.Value, row *sql.Rows, foundCap int) (int, err
 // cols is the column names returned in the query.
 //
 // val is the root value that holds the struct waiting to be scanned into.
-func (self model) visitAll(targetFieldVals *[]interface{}, cols *[]string, val reflect.Value) {
+func (self model) visitAll(targetFieldVals *[]interface{}, cols *[]string, val reflect.Value) (continueLooking bool) {
 	var thisField reflect.Value
 
 	for i, field := range self.fields {
@@ -84,15 +89,26 @@ func (self model) visitAll(targetFieldVals *[]interface{}, cols *[]string, val r
 			return
 		}
 
-		if !field.match((*cols)[0]) && field.model == nil {
-			// if the name doesn't match, there's a chance that it's because
-			// the target column is in an embedded struct. If the field model
-			// is nil, then that isn't the case.
-			//
-			// If it is indeed the case, we should recurse down into the struct
-			// later.
-			continue
+		//		fmt.Printf("+ visiting %s (%s) in search of %s\n  (len(cols) == %d)\n", field.name, field.originalName, (*cols)[0], len(*cols))
+
+		// if the name doesn't match, there's a chance that it's because the
+		// target column is in an embedded struct. If the field model is nil,
+		// then that isn't the case.
+		//
+		// If it is indeed the case, we should recurse down into the struct
+		// later.
+
+		if !field.match((*cols)[0]) {
+			//			fmt.Printf("%s doesn't match %s or %s\n", (*cols)[0], field.name, field.originalName)
+			//			println("[match] continueLooking = true")
+
+			if field.model == nil {
+				continueLooking = true
+				continue
+			}
 		}
+
+		//		fmt.Printf("%s matches %s or %s\n", (*cols)[0], field.name, field.originalName)
 
 		if val.Kind() == reflect.Ptr {
 			thisField = val.Elem().Field(i)
@@ -107,19 +123,34 @@ func (self model) visitAll(targetFieldVals *[]interface{}, cols *[]string, val r
 		}
 
 		if field.model != nil {
+			//			println("we have to go deeper")
 			// we have to move down the tree
-			field.model.visitAll(targetFieldVals, cols, thisField)
+
+			// if continueLooking is true here that means it was set to true on
+			// the last iteration during the attempt to match field names in
+			// parent field
+			continueLooking = field.model.visitAll(targetFieldVals, cols, thisField)
+			//			println("[visit] continue looking =", continueLooking)
 		} else {
 			// normal value, add as scan destination
+			//			fmt.Printf("appending %T\n", thisField.Addr().Interface())
 			*targetFieldVals = append(*targetFieldVals, thisField.Addr().Interface())
+			continueLooking = false
+			//			println("[else] continueLooking = false")
 		}
-		if len(*cols) == 1 {
-			// last column from query result, stop recursing
-			return
+
+		if !continueLooking {
+			if len(*cols) == 1 {
+				// last column from query result, stop recursing
+				return
+			}
+			// len(cols) is now guaranteed 2 or more
+			//			println("advancing to next column")
+			*cols = (*cols)[1:]
+			continueLooking = true
 		}
-		// len(cols) is now guaranteed 2 or more
-		*cols = (*cols)[1:]
 	}
+	return
 }
 
 type field struct {
@@ -132,11 +163,11 @@ type field struct {
 func newField(s reflect.StructField) (f *field) {
 	f = new(field)
 	f.t = s.Type
-	f.originalName = s.Name
+	f.originalName = toSnake(s.Name)
 	if tag := s.Tag.Get("sql"); tag != "" {
 		f.name = tag
 	} else {
-		f.name = toSnake(s.Name)
+		f.name = f.originalName
 	}
 
 	// recursively register models
@@ -191,6 +222,8 @@ func Register(t reflect.Type) (*model, error) {
 	default:
 		return nil, fmt.Errorf(errNotStruct, t)
 	}
+
+	//	fmt.Printf("\nregistering %s\n", t.Name())
 
 	m := new(model)
 	numField := elem.NumField()

@@ -17,6 +17,7 @@ type Tester struct {
 type Tester2 struct {
 	FieldA int
 	*Tester3
+	*Tester4
 }
 
 type Tester3 struct {
@@ -90,12 +91,12 @@ func TestDBQuery(t *testing.T) {
 	exec(t, "INSERT INTO go_test_2 VALUES ( 10, 66 )")
 
 	test3 := new(Tester2)
-	err = QueryRow(test3, "SELECT * FROM go_test_2 LIMIT 1")
+	err = QueryRow(test3, "SELECT field_a, b, b FROM go_test_2 LIMIT 1")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if test3.FieldA != 10 || test3.Tester3.Tester4.FieldB != 66 {
+	if test3.FieldA != 10 || test3.Tester3.Tester4.FieldB != 66 || test3.Tester4.FieldB != 66 {
 		t.Error("fail: embedded structs")
 	}
 
