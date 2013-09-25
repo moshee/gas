@@ -123,14 +123,16 @@ func (self model) visitAll(targetFieldVals *[]interface{}, cols *[]string, val r
 }
 
 type field struct {
-	name string
-	t    reflect.Type
+	originalName string
+	name         string
+	t            reflect.Type
 	*model
 }
 
 func newField(s reflect.StructField) (f *field) {
 	f = new(field)
 	f.t = s.Type
+	f.originalName = s.Name
 	if tag := s.Tag.Get("sql"); tag != "" {
 		f.name = tag
 	} else {
@@ -140,6 +142,9 @@ func newField(s reflect.StructField) (f *field) {
 	// recursively register models
 	m, err := Register(s.Type)
 	if err != nil {
+		// We don't return the error here because an error indicates that there
+		// is no model (struct pointer) associated with f and we should just
+		// continue on. f is just a regular value.
 		return f
 	}
 	f.model = m
@@ -147,7 +152,7 @@ func newField(s reflect.StructField) (f *field) {
 }
 
 func (self *field) match(column string) bool {
-	return self.name == column
+	return self.name == column || self.originalName == column
 }
 
 var (
@@ -163,6 +168,11 @@ var (
 //
 // Register will be called automatically upon first use of a valid type within
 // Query and QueryRow if it has not been registered beforehand.
+//
+// Register searches a struct recursively, looking for embedded structs in the
+// process. If there are no embedded structs, nothing special happens. Slices
+// or other pointer/reference types count as regular values; they must be
+// Scannable with database/sql.
 func Register(t reflect.Type) (*model, error) {
 	if m, ok := modelCache[t]; ok {
 		return &m, nil
