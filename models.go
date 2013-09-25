@@ -62,7 +62,7 @@ func (self model) scan(val reflect.Value, row *sql.Rows, foundCap int) (int, err
 	// slice. Values will still be appended but it will not have to grow. If
 	// foundCap == 0, nothing special will happen.
 	targetFieldVals := make([]interface{}, 0, foundCap)
-	self.visitAll(targetFieldVals, cols, val)
+	self.visitAll(&targetFieldVals, &cols, val)
 	foundCap = len(targetFieldVals)
 
 	return foundCap, row.Scan(targetFieldVals...)
@@ -76,31 +76,42 @@ func (self model) scan(val reflect.Value, row *sql.Rows, foundCap int) (int, err
 // cols is the column names returned in the query.
 //
 // val is the root value that holds the struct waiting to be scanned into.
-func (self model) visitAll(targetFieldVals []interface{}, cols []string, val reflect.Value) {
+func (self model) visitAll(targetFieldVals *[]interface{}, cols *[]string, val reflect.Value) {
 	var thisField reflect.Value
 
 	for i, field := range self.fields {
-		if len(cols) == 0 {
+		if len(*cols) == 0 {
 			return
 		}
-		if !field.match(cols[0]) {
+		if !field.match((*cols)[0]) {
 			continue
 		}
 
-		thisField = val.Field(i)
+		if val.Kind() == reflect.Ptr {
+			thisField = val.Elem().Field(i)
+		} else {
+			thisField = val.Field(i)
+		}
+
+		if field.t.Kind() == reflect.Ptr {
+			if thisField.IsNil() {
+				thisField.Set(reflect.New(field.t.Elem()))
+			}
+		}
+
 		if field.model != nil {
 			// we have to move down the tree
 			field.model.visitAll(targetFieldVals, cols, thisField)
 		} else {
 			// normal value, add as scan destination
-			targetFieldVals = append(targetFieldVals, thisField.Interface())
+			*targetFieldVals = append(*targetFieldVals, thisField.Addr().Interface())
 		}
-		if len(cols) == 1 {
+		if len(*cols) == 1 {
 			// last column from query result, stop recursing
 			return
 		}
 		// len(cols) is now guaranteed 2 or more
-		cols = cols[1:]
+		*cols = (*cols)[1:]
 	}
 }
 
@@ -226,7 +237,7 @@ func Query(slice interface{}, query string, args ...interface{}) error {
 
 	sliceVal := reflect.ValueOf(slice).Elem()
 	foundCap := 0
-	for i := 0; i < sliceVal.Len(); i++ {
+	for i := 0; i < sliceVal.Len() && rows.Next(); i++ {
 		if foundCap, err = model.scan(sliceVal.Index(i), rows, foundCap); err != nil {
 			return err
 		}
