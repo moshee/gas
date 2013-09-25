@@ -42,7 +42,6 @@ func init() {
 // no effect.
 //
 // Predefined global funcs that will be overridden:
-//     "eq":        func(a, b string) bool
 //     "string":    func(b []byte) string
 //     "raw":       func(s string) template.HTML
 //     "markdown":  func(b []byte) template.HTML

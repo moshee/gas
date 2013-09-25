@@ -225,6 +225,7 @@ type Subcommand struct {
 	Do   func() error
 }
 
+// Unimplemented
 func RegisterSubcommand(commands ...*Subcommand) {
 
 }
