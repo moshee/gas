@@ -2,6 +2,7 @@ package gas
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"log"
 	"net/http"
@@ -22,6 +23,10 @@ var (
 	flag_db_idle_conns = flag.Int("gas.db.conns.idle", 10, "Maximum number of idle DB connections")
 	flag_db_conns      = flag.Int("gas.db.conns.open", 4, "Maximum number of open DB connections")
 	sigchan            = make(chan os.Signal, 2)
+)
+
+var (
+	errNotLoggedIn = errors.New("User is not logged in.")
 )
 
 func init() {
@@ -101,6 +106,28 @@ type Gas struct {
 	http.ResponseWriter
 	*http.Request
 	Args map[string]string
+
+	// User is the user object used for user authorization, etc. It will be
+	// populated automatically upon a call to SignIn(), if successful.
+	// Otherwise, it will be populated upon a call to Allowed()—again, if
+	// successful.
+	User
+}
+
+func (g *Gas) Allowed(privileges interface{}) (bool, error) {
+	if g.User == nil {
+		sess, err := g.Session()
+		if err != nil {
+			return false, err
+		} else if sess == nil {
+			return false, errNotLoggedIn
+		}
+		g.User, err = cookies.auth.User(sess.Who)
+		if err != nil {
+			return false, err
+		}
+	}
+	return g.User.Allowed(privileges), nil
 }
 
 // Simple wrapper around `http.ServeFile`.

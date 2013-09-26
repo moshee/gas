@@ -177,7 +177,7 @@ func (r *Router) Delete(pattern string, handler Handler) *Router {
 func dispatch(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		if nuke := recover(); nuke != nil {
-			g := &Gas{w, r, nil}
+			g := &Gas{w, r, nil, nil}
 			var (
 				err error
 				ok  bool
@@ -198,9 +198,9 @@ func dispatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if values, handler := router.match(r); handler != nil {
-		handler(&Gas{w, r, values})
+		handler(&Gas{w, r, values, nil})
 	} else {
-		g := &Gas{w, r, values}
+		g := &Gas{w, r, values, nil}
 		g.Error(404, nil)
 	}
 

@@ -40,7 +40,7 @@ type Session struct {
 	Who     string
 }
 
-func parse_sessid(sessid string) ([]byte, []byte, error) {
+func parseSessid(sessid string) ([]byte, []byte, error) {
 	p, err := base64.StdEncoding.DecodeString(sessid)
 	if err != nil {
 		return nil, nil, err
@@ -48,23 +48,34 @@ func parse_sessid(sessid string) ([]byte, []byte, error) {
 	return p[:sessid_len], p[sessid_len:], nil
 }
 
-// A SessionStore is the generalized interface used to store sessions. Any type that
-// implements this interface can be used to store sessions.
-type SessionStore interface {
+// A Authenticator is the generalized interface used to auth sessions. Any type
+// that implements this interface can be used to auth sessions.
+type Authenticator interface {
+	// Methods for CRUDing sessions.
 	CreateSession(name, id []byte, expires time.Time, username string) error
 	ReadSession(name, id []byte) (*Session, error)
 	UpdateSession(name, id []byte) error
 	DeleteSession(name, id []byte) error
 
+	// Return the user's password hash and salt for password checking.
 	UserAuthData(username string) (pass, salt []byte, err error)
+
+	// Return an object that implements the User interface for authorization
+	// checking.
+	User(name string) (User, error)
+}
+
+// All of the generic things a user should be able to do.
+type User interface {
+	Allowed(privileges interface{}) bool
 }
 
 type dbStore struct {
 	table string
 }
 
-// A session store that stores sessions in the database.
-func NewDBStore(table string) (SessionStore, error) {
+// A session auth that stores sessions in the database.
+func NewDBStore(table string) (Authenticator, error) {
 	_, err := DB.Exec("CREATE TABLE IF NOT EXISTS " + table +
 		" ( name bytea UNIQUE NOT NULL, sessid bytea UNIQUE NOT NULL, salt bytea NOT NULL, expires timestamp with time zone, who integer references " + UsersTable + "(id) )")
 	if err != nil {
@@ -73,6 +84,7 @@ func NewDBStore(table string) (SessionStore, error) {
 	return &dbStore{table}, nil
 }
 
+// Create a new session.
 func (self *dbStore) CreateSession(name, sessid []byte, expires time.Time, username string) error {
 	hash, salt, err := NewHash(sessid)
 	if err != nil {
@@ -82,6 +94,7 @@ func (self *dbStore) CreateSession(name, sessid []byte, expires time.Time, usern
 	return err
 }
 
+// Return a stored session. If no session was found—indicating not logged in—ReadSession should return a nil session, not an error.
 func (self *dbStore) ReadSession(id, name []byte) (*Session, error) {
 	session := new(Session)
 	if err := QueryRow(session, "SELECT s.name, s.sessid, s.salt, s.expires, u.name FROM "+self.table+" s, users u WHERE s.name=$1 AND s.who = u.id", name); err != nil {
@@ -116,7 +129,12 @@ func (self *dbStore) UserAuthData(username string) (pass, salt []byte, err error
 	return
 }
 
-func NewSession(store SessionStore, who string) (id64 string, err error) {
+// TODO: this (or just get rid of this whole thing)
+func (self *dbStore) User(name string) (User, error) {
+	return nil, nil
+}
+
+func NewSession(auth Authenticator, who string) (id64 string, err error) {
 	now := time.Now()
 	session_name := sha256.New()
 	session_name.Write([]byte(now.String()))
@@ -133,30 +151,30 @@ func NewSession(store SessionStore, who string) (id64 string, err error) {
 		return "", err
 	}
 
-	err = store.CreateSession(name, sessid, now.Add(MaxCookieAge), who)
+	err = auth.CreateSession(name, sessid, now.Add(MaxCookieAge), who)
 	id64 = base64.StdEncoding.EncodeToString(append(sessid, name...))
 	return
 }
 
-// Provides facilities to store and use sessions.
-type CookieAuth struct {
-	store SessionStore
+// Provides facilities to auth and use sessions.
+type cookieAuth struct {
+	auth Authenticator
 }
 
 var (
-	auth                 *CookieAuth
-	errCookiesNotEnabled = errors.New("gas: auth: cookies have not been enabled")
+	cookies              *cookieAuth
+	errCookiesNotEnabled = errors.New("gas: cookies: cookies have not been enabled")
 	errBadPassword       = errors.New("Invalid username or password.")
 )
 
-func UseCookies(store SessionStore) {
-	auth = &CookieAuth{store}
+func UseCookies(auth Authenticator) {
+	cookies = &cookieAuth{auth}
 }
 
 // Returns true if the user (identified by the request context) is logged in,
 // false otherwise.
 func (g *Gas) Session() (*Session, error) {
-	if auth == nil {
+	if cookies == nil {
 		return nil, errCookiesNotEnabled
 	}
 
@@ -165,15 +183,15 @@ func (g *Gas) Session() (*Session, error) {
 		return nil, err
 	}
 
-	id, name, err := parse_sessid(cookie.Value)
+	id, name, err := parseSessid(cookie.Value)
 	if err != nil {
 		return nil, err
 	}
 
-	session, err := auth.store.ReadSession(id, name)
+	session, err := cookies.auth.ReadSession(id, name)
 
 	if err != nil || time.Now().After(session.Expires) {
-		Log(Warning, "(*CookieAuth).Session: %v", err)
+		Log(Warning, "(*cookieAuth).Session: %v", err)
 		g.SignOut()
 		return nil, err
 	}
@@ -183,7 +201,7 @@ func (g *Gas) Session() (*Session, error) {
 // Signs the user in by creating a new session and setting a cookie on the
 // client.
 func (g *Gas) SignIn() error {
-	if auth == nil {
+	if cookies == nil {
 		return errCookiesNotEnabled
 	}
 
@@ -198,12 +216,17 @@ func (g *Gas) SignIn() error {
 			return err
 		}
 
-		id, name, err := parse_sessid(cookie.Value)
+		id, name, err := parseSessid(cookie.Value)
 		if err != nil {
 			return err
 		}
 
-		if err := auth.store.UpdateSession(id, name); err != nil {
+		if err := cookies.auth.UpdateSession(id, name); err != nil {
+			return err
+		}
+
+		g.User, err = cookies.auth.User(sess.Who)
+		if err != nil {
 			return err
 		}
 
@@ -224,7 +247,7 @@ func (g *Gas) SignIn() error {
 		return errBadPassword
 	}
 
-	sessid, err := NewSession(auth.store, user)
+	sessid, err := NewSession(cookies.auth, user)
 	if err != nil {
 		return err
 	}
@@ -239,22 +262,28 @@ func (g *Gas) SignIn() error {
 	}
 
 	g.SetCookie(cookie)
+
+	g.User, err = cookies.auth.User(user)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
-// Signs the user out, destroying the associated session.
+// Signs the user out, destroying the associated session and cookie.
 func (g *Gas) SignOut() error {
 	cookie, err := g.Cookie("s")
 	if err != nil {
 		return err
 	}
 
-	id, name, err := parse_sessid(cookie.Value)
+	id, name, err := parseSessid(cookie.Value)
 	if err != nil {
 		return err
 	}
 
-	if err := auth.store.DeleteSession(id, name); err != nil {
+	if err := cookies.auth.DeleteSession(id, name); err != nil {
 		return err
 	}
 
@@ -262,11 +291,12 @@ func (g *Gas) SignOut() error {
 	return nil
 }
 
-// The name of the table used to store users.
+// The name of the table used to auth users.
 // TODO: this is a really lame way to do this. Needs a more civilized API.
 var UsersTable = "users"
 
 // Add a user to the database.
+// TODO: deprecate this
 func NewUser(user, pass string) error {
 	hash, salt, err := NewHash([]byte(pass))
 	if err != nil {
@@ -279,15 +309,12 @@ func NewUser(user, pass string) error {
 
 // Check if the supplied passphrase matches the expected hash using the salt.
 func VerifyHash(supplied, expected, salt []byte) bool {
-	//Log(Notice, "verifying '%s' : '%s'", user, pass)
 	hashed := Hash(supplied, salt)
 	return subtle.ConstantTimeCompare(expected, hashed) == 1
-	//	return fmt.Errorf("Invalid username or password: got hash %v, expected %v (salt %v)", hashed, stored_pass, stored_salt)
 }
 
 // Hash the given passphrase using the salt provided.
 func Hash(pass []byte, salt []byte) []byte {
-	// TODO: magic numbers
 	hash, _ := scrypt.Key(pass, salt, 2<<HashCost, 8, 1, 32)
 	return hash
 }
@@ -301,7 +328,7 @@ func NewHash(pass []byte) (hash, salt []byte, err error) {
 }
 
 func VerifyPass(user, pass string) (bool, error) {
-	storedPass, storedSalt, err := auth.store.UserAuthData(user)
+	storedPass, storedSalt, err := cookies.auth.UserAuthData(user)
 	if err != nil {
 		return false, err
 	}
