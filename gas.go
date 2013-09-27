@@ -147,12 +147,18 @@ func (g *Gas) Redirect(path string, code int) {
 // template context in a gas.Error value.
 func (g *Gas) Error(code int, err error) {
 	g.WriteHeader(code)
+	ctx := Error{
+		Path: g.URL.Path,
+		Err:  err,
+	}
+	code_s := strconv.Itoa(code)
+
 	if err != nil {
-		code_s := strconv.Itoa(code)
 		buf := make([]byte, 4096)
 		n := runtime.Stack(buf, false)
-		g.Render("errors", code_s, Error{g.URL.Path, err, string(buf[:n])})
+		ctx.Stack = string(buf[:n])
 	}
+	g.Render("errors", code_s, ctx)
 }
 
 // Simple wrapper around http.SetCookie.

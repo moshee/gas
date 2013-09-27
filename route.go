@@ -202,6 +202,8 @@ func dispatch(w http.ResponseWriter, r *http.Request) {
 	} else {
 		g := &Gas{w, r, values, nil}
 		g.Error(404, nil)
+		Log(Debug, "404 serving %s", r.URL.Path)
+		return
 	}
 
 	Log(Debug, "%v\t%s\t%s %s%s\tfrom %s", time.Now().Sub(now), r.RemoteAddr, r.Method, r.Host, r.URL.Path, r.Header.Get("Referer"))
