@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -169,6 +170,10 @@ func (g *Gas) JSON(val interface{}) error {
 	g.ResponseWriter.Header().Set("Content-Type", "application/json")
 	e := json.NewEncoder(g.ResponseWriter)
 	return e.Encode(val)
+}
+
+func (g *Gas) Domain() string {
+	return strings.SplitN(g.Host, ":", 1)[0]
 }
 
 func do_subcommands() bool {

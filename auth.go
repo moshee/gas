@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"net/http"
 	//	"os"
-	"strings"
 	"time"
 )
 
@@ -165,6 +164,7 @@ var (
 	cookies              *cookieAuth
 	errCookiesNotEnabled = errors.New("gas: cookies: cookies have not been enabled")
 	errBadPassword       = errors.New("Invalid username or password.")
+	errCookieExpired     = errors.New("Your session has expired. Please log in again.")
 )
 
 func UseCookies(auth Authenticator) {
@@ -180,22 +180,23 @@ func (g *Gas) Session() (*Session, error) {
 
 	cookie, err := g.Cookie("s")
 	if err != nil {
+		g.Error(500, err)
 		return nil, err
 	}
 
 	id, name, err := parseSessid(cookie.Value)
 	if err != nil {
+		g.Error(500, err)
 		return nil, err
 	}
 
 	session, err := cookies.auth.ReadSession(id, name)
 
-	if err != nil || time.Now().After(session.Expires) {
-		Log(Warning, "(*cookieAuth).Session: %v", err)
+	if session != nil && time.Now().After(session.Expires) {
 		g.SignOut()
-		return nil, err
+		return nil, errCookieExpired
 	}
-	return session, nil
+	return session, err
 }
 
 // Signs the user in by creating a new session and setting a cookie on the
@@ -206,10 +207,7 @@ func (g *Gas) SignIn() error {
 	}
 
 	// already signed in?
-	sess, err := g.Session()
-	if err != nil {
-		return err
-	}
+	sess, _ := g.Session()
 	if sess != nil {
 		cookie, err := g.Cookie("s")
 		if err != nil {
@@ -238,12 +236,14 @@ func (g *Gas) SignIn() error {
 		return fmt.Errorf("No username supplied")
 	}
 
+	// NOTE: I'm assuming that the only error from here could be "sql: no rows
+	// in result set". I need a way to intelligently detect whether this is
+	// really the case or if there's really something wrong with the database.
+	// The only thing that could error in this call stack is the database
+	// query.
 	good, err := VerifyPass(user, g.FormValue("pass"))
-	if err != nil {
-		return err
-	}
 
-	if !good {
+	if !good || err != nil {
 		return errBadPassword
 	}
 
@@ -252,11 +252,16 @@ func (g *Gas) SignIn() error {
 		return err
 	}
 
+	Log(Debug, "Created session %x", sessid)
+
+	// TODO: determine if setting the path to / is always what we want. If it's
+	// set to anything other than /, then only requests to that path will
+	// include the cookie in the header (the browser restricts this).
 	cookie := &http.Cookie{
 		Name:     "s",
 		Value:    sessid,
-		Path:     g.URL.Path,
-		Domain:   strings.SplitN(g.Host, ":", 1)[0],
+		Path:     "/",
+		Domain:   g.Domain(),
 		MaxAge:   int(MaxCookieAge / time.Second),
 		HttpOnly: true,
 	}
@@ -310,6 +315,7 @@ func NewUser(user, pass string) error {
 // Check if the supplied passphrase matches the expected hash using the salt.
 func VerifyHash(supplied, expected, salt []byte) bool {
 	hashed := Hash(supplied, salt)
+	Log(Debug, "I got %x when I hashed '%s'", hashed, supplied)
 	return subtle.ConstantTimeCompare(expected, hashed) == 1
 }
 
@@ -333,8 +339,7 @@ func VerifyPass(user, pass string) (bool, error) {
 		return false, err
 	}
 
-	if !VerifyHash([]byte(pass), storedPass, storedSalt) {
-		return false, nil
-	}
-	return true, nil
+	Log(Debug, "Recieved %x / %x", storedPass, storedSalt)
+
+	return VerifyHash([]byte(pass), storedPass, storedSalt), nil
 }
