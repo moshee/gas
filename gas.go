@@ -108,27 +108,18 @@ type Gas struct {
 	*http.Request
 	Args map[string]string
 
-	// User is the user object used for user authorization, etc. It will be
+	// user is the user object used for user authorization, etc. It will be
 	// populated automatically upon a call to SignIn(), if successful.
 	// Otherwise, it will be populated upon a call to Allowed()—again, if
 	// successful.
-	User
+	user User
 }
 
 func (g *Gas) Allowed(privileges interface{}) (bool, error) {
-	if g.User == nil {
-		sess, err := g.Session()
-		if err != nil {
-			return false, err
-		} else if sess == nil {
-			return false, errNotLoggedIn
-		}
-		g.User, err = cookies.auth.User(sess.Who)
-		if err != nil {
-			return false, err
-		}
+	if g.User() == nil {
+		return false, errNotLoggedIn
 	}
-	return g.User.Allowed(privileges), nil
+	return g.user.Allowed(privileges), nil
 }
 
 // Simple wrapper around `http.ServeFile`.

@@ -199,6 +199,29 @@ func (g *Gas) Session() (*Session, error) {
 	return session, err
 }
 
+func (g *Gas) User() User {
+	if g.user != nil {
+		return g.user
+	}
+
+	if sess, err := g.Session(); sess != nil {
+		user, err := cookies.auth.User(sess.Who)
+		if err != nil {
+			return nil
+		}
+
+		g.user = user
+		return user
+	} else if err != nil {
+		Log(Warning, "gas: *gas.User: error getting session: %v", err)
+		if err := g.SignOut(); err != nil {
+			Log(Warning, "gas: *gas.User: error signing out: %v", err)
+		}
+	}
+
+	return nil
+}
+
 // Signs the user in by creating a new session and setting a cookie on the
 // client.
 func (g *Gas) SignIn() error {
@@ -223,7 +246,7 @@ func (g *Gas) SignIn() error {
 			return err
 		}
 
-		g.User, err = cookies.auth.User(sess.Who)
+		g.user, err = cookies.auth.User(sess.Who)
 		if err != nil {
 			return err
 		}
@@ -268,7 +291,7 @@ func (g *Gas) SignIn() error {
 
 	g.SetCookie(cookie)
 
-	g.User, err = cookies.auth.User(user)
+	g.user, err = cookies.auth.User(user)
 	if err != nil {
 		return err
 	}
