@@ -3,7 +3,7 @@ package gas
 import (
 	"code.google.com/p/go.crypto/scrypt"
 	"crypto/rand"
-	"crypto/sha256"
+	//"crypto/sha256"
 	"crypto/subtle"
 	//	"database/sql"
 	"encoding/base64"
@@ -32,29 +32,23 @@ const sessid_len = 64
 
 // Describes a secure session to be stored temporarily or long-term.
 type Session struct {
-	Name    string
 	Sessid  []byte
-	Salt    []byte
 	Expires time.Time
 	Who     string
 }
 
-func parseSessid(sessid string) ([]byte, []byte, error) {
-	p, err := base64.StdEncoding.DecodeString(sessid)
-	if err != nil {
-		return nil, nil, err
-	}
-	return p[:sessid_len], p[sessid_len:], nil
+func parseSessid(sessid string) ([]byte, error) {
+	return base64.StdEncoding.DecodeString(sessid)
 }
 
 // A Authenticator is the generalized interface used to auth sessions. Any type
 // that implements this interface can be used to auth sessions.
 type Authenticator interface {
 	// Methods for CRUDing sessions.
-	CreateSession(name, id []byte, expires time.Time, username string) error
-	ReadSession(name, id []byte) (*Session, error)
-	UpdateSession(name, id []byte) error
-	DeleteSession(name, id []byte) error
+	CreateSession(id []byte, expires time.Time, username string) error
+	ReadSession(id []byte) (*Session, error)
+	UpdateSession(id []byte) error
+	DeleteSession(id []byte) error
 
 	// Return the user's password hash and salt for password checking.
 	UserAuthData(username string) (pass, salt []byte, err error)
@@ -73,6 +67,7 @@ type User interface {
 	Allowed(privileges interface{}) bool
 }
 
+/*
 type dbStore struct {
 	table string
 }
@@ -88,7 +83,7 @@ func NewDBStore(table string) (Authenticator, error) {
 }
 
 // Create a new session.
-func (self *dbStore) CreateSession(name, sessid []byte, expires time.Time, username string) error {
+func (self *dbStore) CreateSession(sessid []byte, expires time.Time, username string) error {
 	hash, salt, err := NewHash(sessid)
 	if err != nil {
 		return err
@@ -98,7 +93,7 @@ func (self *dbStore) CreateSession(name, sessid []byte, expires time.Time, usern
 }
 
 // Return a stored session. If no session was found—indicating not logged in—ReadSession should return a nil session, not an error.
-func (self *dbStore) ReadSession(id, name []byte) (*Session, error) {
+func (self *dbStore) ReadSession(id []byte) (*Session, error) {
 	session := new(Session)
 	if err := QueryRow(session, "SELECT s.name, s.sessid, s.salt, s.expires, u.name FROM "+self.table+" s, users u WHERE s.name=$1 AND s.who = u.id", name); err != nil {
 		return nil, err
@@ -112,8 +107,8 @@ func (self *dbStore) ReadSession(id, name []byte) (*Session, error) {
 }
 
 // TODO: fix this
-func (self *dbStore) UpdateSession(id, name []byte) error {
-	session, err := self.ReadSession(id, name)
+func (self *dbStore) UpdateSession(id []byte) error {
+	session, err := self.ReadSession(id)
 	if err != nil {
 		return err
 	}
@@ -121,8 +116,8 @@ func (self *dbStore) UpdateSession(id, name []byte) error {
 	return err
 }
 
-func (self *dbStore) DeleteSession(id, name []byte) error {
-	_, err := DB.Exec("DELETE FROM "+self.table+" WHERE name=$1", name)
+func (self *dbStore) DeleteSession(id []byte) error {
+	_, err := DB.Exec("DELETE FROM "+self.table+" WHERE name=$1", id)
 	return err
 }
 
@@ -135,26 +130,17 @@ func (self *dbStore) UserAuthData(username string) (pass, salt []byte, err error
 // TODO: this (or just get rid of this whole thing)
 func (self *dbStore) User(name string) (User, error) { return nil, nil }
 func (self *dbStore) NilUser() User                  { return nil }
+*/
 
 func NewSession(auth Authenticator, who string) (id64 string, err error) {
-	now := time.Now()
-	session_name := sha256.New()
-	session_name.Write([]byte(now.String()))
-
-	session_salt := make([]byte, 4)
-	rand.Read(session_salt)
-	session_name.Write(session_salt)
-
-	name := session_name.Sum(nil)
-
 	sessid := make([]byte, sessid_len)
 	_, err = rand.Read(sessid)
 	if err != nil {
 		return "", err
 	}
 
-	err = auth.CreateSession(name, sessid, now.Add(MaxCookieAge), who)
-	id64 = base64.StdEncoding.EncodeToString(append(sessid, name...))
+	err = auth.CreateSession(sessid, time.Now().Add(MaxCookieAge), who)
+	id64 = base64.StdEncoding.EncodeToString(sessid)
 	return
 }
 
@@ -187,13 +173,19 @@ func (g *Gas) Session() (*Session, error) {
 		return nil, nil
 	}
 
-	id, name, err := parseSessid(cookie.Value)
+	id, err := parseSessid(cookie.Value)
 	if err != nil {
 		g.Error(500, err)
 		return nil, err
 	}
 
-	session, err := cookies.auth.ReadSession(id, name)
+	session, err := cookies.auth.ReadSession(id)
+
+	// no rows in result set IS NOT AN ERROR SDFJALKSDJFALKSDJFLKASDJF
+	if err != nil {
+		g.SignOut()
+		return nil, nil
+	}
 
 	if session != nil && time.Now().After(session.Expires) {
 		g.SignOut()
@@ -209,10 +201,12 @@ func (g *Gas) User() User {
 
 	if sess, err := g.Session(); sess != nil {
 		g.user, _ = cookies.auth.User(sess.Who)
+		return g.user
 	} else if err != nil {
-		Log(Warning, "gas: *gas.User: error getting session: %v", err)
+		// no rows in result set is NOT an error damn it
+		//Log(Warning, "gas: gas.User: error getting session: %v", err)
 		if err := g.SignOut(); err != nil {
-			Log(Warning, "gas: *gas.User: error signing out: %v", err)
+			Log(Warning, "gas: gas.User: error signing out: %v", err)
 		}
 	}
 
@@ -235,12 +229,12 @@ func (g *Gas) SignIn() error {
 			return err
 		}
 
-		id, name, err := parseSessid(cookie.Value)
+		id, err := parseSessid(cookie.Value)
 		if err != nil {
 			return err
 		}
 
-		if err := cookies.auth.UpdateSession(id, name); err != nil {
+		if err := cookies.auth.UpdateSession(id); err != nil {
 			return err
 		}
 
@@ -273,7 +267,7 @@ func (g *Gas) SignIn() error {
 		return err
 	}
 
-	Log(Debug, "Created session %x", sessid)
+	Log(Debug, "Created session %s", sessid)
 
 	// TODO: determine if setting the path to / is always what we want. If it's
 	// set to anything other than /, then only requests to that path will
@@ -304,16 +298,19 @@ func (g *Gas) SignOut() error {
 		return err
 	}
 
-	id, name, err := parseSessid(cookie.Value)
+	id, err := parseSessid(cookie.Value)
 	if err != nil {
 		return err
 	}
 
-	if err := cookies.auth.DeleteSession(id, name); err != nil {
-		return err
-	}
+	/*
+		if err := cookies.auth.DeleteSession(id); err != nil {
+			return err
+		}
+	*/
+	cookies.auth.DeleteSession(id)
 
-	g.SetCookie(&http.Cookie{Name: "s", Value: "deleted", MaxAge: -1})
+	g.SetCookie(&http.Cookie{Name: "s", Value: "deleted", Expires: time.Time{}})
 	return nil
 }
 
