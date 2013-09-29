@@ -175,8 +175,9 @@ func (g *Gas) Session() (*Session, error) {
 
 	id, err := parseSessid(cookie.Value)
 	if err != nil {
-		g.Error(500, err)
-		return nil, err
+		// this means invalid session
+		g.SignOut()
+		return nil, nil
 	}
 
 	session, err := cookies.auth.ReadSession(id)

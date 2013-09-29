@@ -134,7 +134,7 @@ func (self model) visitAll(targetFieldVals *[]interface{}, cols *[]string, val r
 		} else {
 			// normal value, add as scan destination
 			//			fmt.Printf("appending %T\n", thisField.Addr().Interface())
-			//Log(Debug, "gas: models: visitAll: matched %s (%s) with %s", field.name, field.originalName, (*cols)[0])
+			Log(Debug, "gas: models: visitAll: matched %s (%s) with %s", field.name, field.originalName, (*cols)[0])
 			*targetFieldVals = append(*targetFieldVals, thisField.Addr().Interface())
 			continueLooking = false
 			//			println("[else] continueLooking = false")
@@ -286,12 +286,24 @@ func Query(slice interface{}, query string, args ...interface{}) error {
 	}
 	defer rows.Close()
 
+	// var slice *[]T
+	// sliceVal := *slice
 	sliceVal := reflect.ValueOf(slice).Elem()
 	foundCap := 0
 	for i := 0; i < sliceVal.Len() && rows.Next(); i++ {
 		if foundCap, err = model.scan(sliceVal.Index(i), rows, foundCap); err != nil {
 			return err
 		}
+	}
+
+	// var sliceElemType type = T
+	sliceElemType := sliceVal.Type().Elem()
+	for rows.Next() {
+		val := reflect.New(sliceElemType)
+		if _, err := model.scan(val, rows, foundCap); err != nil {
+			return err
+		}
+		sliceVal.Set(reflect.Append(sliceVal, val.Elem()))
 	}
 
 	return nil
