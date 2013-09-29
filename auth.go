@@ -276,7 +276,6 @@ func (g *Gas) SignIn() error {
 		Name:     "s",
 		Value:    sessid,
 		Path:     "/",
-		Domain:   g.Domain(),
 		MaxAge:   int(MaxCookieAge / time.Second),
 		HttpOnly: true,
 	}
