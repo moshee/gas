@@ -134,6 +134,7 @@ func (self model) visitAll(targetFieldVals *[]interface{}, cols *[]string, val r
 		} else {
 			// normal value, add as scan destination
 			//			fmt.Printf("appending %T\n", thisField.Addr().Interface())
+			Log(Debug, "gas: models: visitAll: matched %s (%s) with %s", field.name, field.originalName, (*cols)[0])
 			*targetFieldVals = append(*targetFieldVals, thisField.Addr().Interface())
 			continueLooking = false
 			//			println("[else] continueLooking = false")

@@ -1,6 +1,7 @@
 package gas
 
 import (
+	"database/sql"
 	"fmt"
 	md "github.com/russross/blackfriday"
 	"html/template"
@@ -27,8 +28,20 @@ var (
 			return template.HTML(s)
 		},
 		"markdown": markdown,
-		"smarkdown": func(s string) template.HTML {
-			return markdown([]byte(s))
+		"smarkdown": func(s interface{}) template.HTML {
+			switch v := s.(type) {
+			case sql.NullString:
+				if v.Valid {
+					return markdown([]byte(v.String))
+				} else {
+					return template.HTML("")
+				}
+
+			case string:
+				return markdown([]byte(v))
+			}
+
+			return template.HTML("")
 		},
 	}
 )
@@ -118,6 +131,7 @@ func exec_template(path, name string, w io.Writer, data interface{}) {
 	}
 	if err := t.Execute(w, data); err != nil {
 		t = Templates[path].Lookup(name + "-error")
+		Log(Warning, "Failed to render template %s/%s: %v", path, name, err)
 		if t == nil {
 			Log(Warning, "Template %s/%s has no error template", path, name)
 			fmt.Fprintf(w, "Error: failed to serve error page for %s/%s (error template not found)", path, name)

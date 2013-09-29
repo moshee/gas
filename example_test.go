@@ -35,6 +35,7 @@ func (myAuther) UpdateSession(name, id []byte) error                    { return
 func (myAuther) DeleteSession(name, id []byte) error                    { return nil }
 func (myAuther) UserAuthData(string) (pass, salt []byte, err error)     { return nil, nil, nil }
 func (myAuther) User(name string) (User, error)                         { return nil, nil }
+func (myAuther) NilUser() User                                          { return nil }
 
 func ExampleUseCookies() {
 	// During app init

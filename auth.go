@@ -62,6 +62,10 @@ type Authenticator interface {
 	// Return an object that implements the User interface for authorization
 	// checking.
 	User(name string) (User, error)
+
+	// Return a nil user (that's an interface containing nil, not a nil
+	// interface)
+	NilUser() User
 }
 
 // All of the generic things a user should be able to do.
@@ -129,9 +133,8 @@ func (self *dbStore) UserAuthData(username string) (pass, salt []byte, err error
 }
 
 // TODO: this (or just get rid of this whole thing)
-func (self *dbStore) User(name string) (User, error) {
-	return nil, nil
-}
+func (self *dbStore) User(name string) (User, error) { return nil, nil }
+func (self *dbStore) NilUser() User                  { return nil }
 
 func NewSession(auth Authenticator, who string) (id64 string, err error) {
 	now := time.Now()
@@ -178,10 +181,10 @@ func (g *Gas) Session() (*Session, error) {
 		return nil, errCookiesNotEnabled
 	}
 
-	cookie, err := g.Cookie("s")
-	if err != nil {
-		g.Error(500, err)
-		return nil, err
+	// error here would be cookie not present (this is not an error)
+	cookie, _ := g.Cookie("s")
+	if cookie == nil {
+		return nil, nil
 	}
 
 	id, name, err := parseSessid(cookie.Value)
@@ -205,13 +208,7 @@ func (g *Gas) User() User {
 	}
 
 	if sess, err := g.Session(); sess != nil {
-		user, err := cookies.auth.User(sess.Who)
-		if err != nil {
-			return nil
-		}
-
-		g.user = user
-		return user
+		g.user, _ = cookies.auth.User(sess.Who)
 	} else if err != nil {
 		Log(Warning, "gas: *gas.User: error getting session: %v", err)
 		if err := g.SignOut(); err != nil {
@@ -219,7 +216,8 @@ func (g *Gas) User() User {
 		}
 	}
 
-	return nil
+	g.user = cookies.auth.NilUser()
+	return g.user
 }
 
 // Signs the user in by creating a new session and setting a cookie on the
