@@ -115,15 +115,30 @@ func parse_templates(base string) map[string]*template.Template {
 	return ts
 }
 
-func exec_template(path, name string, w io.Writer, data interface{}) {
-	group := Templates[path]
+func (g *Gas) exec_template(path, name string, data interface{}) {
+	var group *template.Template
+
+	if g.Header.Get("X-Ajax-Partial") != "" {
+		// If it's a partial page request, try to serve a partial template
+		// (denoted by a '%' prepended to the template name). If it doesn't
+		// exist, fall back to the regular one.
+		group = Templates["%"+path]
+		if group == nil {
+			group = Templates[path]
+		}
+	} else {
+		group = Templates[path]
+	}
+
 	if group == nil {
 		Log(Warning, "Failed to access template group \"%s\"", path)
 		fmt.Fprintf(w, "Error: template group \"%s\" not found. Did it fail to compile?", path)
 		return
 	}
 
+	var w io.Writer = g.ResponseWriter
 	t := group.Lookup(name)
+
 	if t == nil {
 		Log(Warning, "No such template: %s/%s", path, name)
 		fmt.Fprintf(w, "Error: no such template: %s/%s", path, name)
@@ -149,5 +164,5 @@ func exec_template(path, name string, w io.Writer, data interface{}) {
 func (g *Gas) Render(path, name string, data interface{}) {
 	templateLock.Lock()
 	defer templateLock.Unlock()
-	exec_template(path, name, g.ResponseWriter, data)
+	g.exec_template(path, name, data)
 }
