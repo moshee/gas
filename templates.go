@@ -116,9 +116,12 @@ func parse_templates(base string) map[string]*template.Template {
 }
 
 func (g *Gas) exec_template(path, name string, data interface{}) {
-	var group *template.Template
+	var (
+		group *template.Template
+		w     io.Writer = g.ResponseWriter
+	)
 
-	if g.Header.Get("X-Ajax-Partial") != "" {
+	if g.Request.Header.Get("X-Ajax-Partial") != "" {
 		// If it's a partial page request, try to serve a partial template
 		// (denoted by a '%' prepended to the template name). If it doesn't
 		// exist, fall back to the regular one.
@@ -136,7 +139,6 @@ func (g *Gas) exec_template(path, name string, data interface{}) {
 		return
 	}
 
-	var w io.Writer = g.ResponseWriter
 	t := group.Lookup(name)
 
 	if t == nil {
