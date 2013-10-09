@@ -310,7 +310,13 @@ func (g *Gas) SignOut() error {
 	*/
 	cookies.auth.DeleteSession(id)
 
-	g.SetCookie(&http.Cookie{Name: "s", Value: "deleted", Expires: time.Time{}})
+	g.SetCookie(&http.Cookie{
+		Name:     "s",
+		Path:     "/",
+		Value:    "deleted",
+		Expires:  time.Time{},
+		HttpOnly: true,
+	})
 	return nil
 }
 

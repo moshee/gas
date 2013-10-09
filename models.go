@@ -188,10 +188,10 @@ func (self *field) match(column string) bool {
 }
 
 var (
-	errNotPtr        = "gas: register %T: target is not a pointer"
-	errNotStruct     = "gas: register %T: target is not a pointer to a struct"
-	errRecursiveType = "gas: register %T: cannot register recursive type (this must be dealt with manually)"
-	errEmptyStruct   = "gas: register %T: what's the point of registering an empty struct?"
+	errNotPtr        = "gas: models: %T: target is not a pointer"
+	errNotStruct     = "gas: models: %T: target is not a pointer to a struct"
+	errRecursiveType = "gas: models: %T: cannot register recursive type (this must be dealt with manually)"
+	errEmptyStruct   = "gas: models: %T: what's the point of registering an empty struct?"
 	errNotSlice      = errors.New("gas: query: destination is not a pointer to a slice")
 )
 
@@ -245,6 +245,7 @@ func Register(t reflect.Type) (*model, error) {
 	return m, nil
 }
 
+// Query a single row into a struct. For simple primitive types, use database/sql.
 func QueryRow(dest interface{}, query string, args ...interface{}) error {
 	model, err := Register(reflect.TypeOf(dest))
 	if err != nil {
@@ -269,6 +270,7 @@ func QueryRow(dest interface{}, query string, args ...interface{}) error {
 	return err
 }
 
+// Query multiple rows into a slice.
 func Query(slice interface{}, query string, args ...interface{}) error {
 	t := reflect.TypeOf(slice)
 	if t.Kind() != reflect.Ptr && t.Elem().Kind() != reflect.Slice {
@@ -304,6 +306,33 @@ func Query(slice interface{}, query string, args ...interface{}) error {
 			return err
 		}
 		sliceVal.Set(reflect.Append(sliceVal, val.Elem()))
+	}
+
+	return nil
+}
+
+// A shortcut to Query or QueryRow. Populate will choose the correct function
+// for dest's type (Query for slice, QueryRow for struct). If an error occurs
+// during the query, Populate performs the default action of sending an HTTP
+// 500 reply with the error.
+func (g *Gas) Populate(dest interface{}, query string, args ...interface{}) error {
+	t := reflect.TypeOf(dest)
+	if t.Kind() != reflect.Ptr {
+		return fmt.Errorf(errNotPtr, dest)
+	}
+
+	var f func(interface{}, string, ...interface{}) error
+
+	switch t.Elem().Kind() {
+	case reflect.Slice:
+		f = Query
+	case reflect.Struct:
+		f = QueryRow
+	}
+
+	if err := f(dest, query, args...); err != nil {
+		g.Error(500, err)
+		return err
 	}
 
 	return nil
