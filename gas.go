@@ -49,7 +49,7 @@ func init() {
 	} else {
 		logfile = os.Stdout
 	}
-	logger = log.New(logfile, "", log.LstdFlags|log.Lshortfile)
+	logger = log.New(logfile, "", log.LstdFlags)
 
 	signal.Notify(sigchan)
 }
