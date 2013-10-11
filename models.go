@@ -193,6 +193,7 @@ var (
 	errRecursiveType = "gas: models: %T: cannot register recursive type (this must be dealt with manually)"
 	errEmptyStruct   = "gas: models: %T: what's the point of registering an empty struct?"
 	errNotSlice      = errors.New("gas: query: destination is not a pointer to a slice")
+	errNoRows        = errors.New("gas: QueryRow: no rows returned")
 )
 
 // Register a model with the system. The reflect.Type should be of a *T or
@@ -265,7 +266,10 @@ func QueryRow(dest interface{}, query string, args ...interface{}) error {
 
 	val := reflect.ValueOf(dest).Elem()
 
-	rows.Next()
+	if !rows.Next() {
+		return errNoRows
+	}
+
 	_, err = model.scan(val, rows, 0)
 	return err
 }
