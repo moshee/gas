@@ -313,7 +313,7 @@ func (g *Gas) SignOut() error {
 	g.SetCookie(&http.Cookie{
 		Name:     "s",
 		Path:     "/",
-		Value:    "deleted",
+		Value:    "",
 		Expires:  time.Time{},
 		HttpOnly: true,
 	})

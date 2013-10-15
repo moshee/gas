@@ -1,6 +1,7 @@
 package gas
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -52,6 +53,22 @@ func init() {
 	logger = log.New(logfile, "", log.LstdFlags)
 
 	signal.Notify(sigchan)
+}
+
+// A RerouteInfo object stores the data passed on from a page rerouting its
+// requester to a different handler. If the RerouteInfo field of *Gas is not
+// nil, that means a reroute was requested. The reroute cookies will always be
+// removed at the beginning of every request, if they exist.
+type RerouteInfo struct {
+	From string
+	Val  interface{}
+	raw  []byte
+}
+
+// Recover the original data left behind on the call to Reroute
+func (self *RerouteInfo) Recover(val interface{}) error {
+	self.Val = val
+	return json.Unmarshal(self.raw, self)
 }
 
 type Error struct {
@@ -108,6 +125,8 @@ type Gas struct {
 	*http.Request
 	Args map[string]string
 
+	*RerouteInfo
+
 	// user is the user object used for user authorization, etc. It will be
 	// populated automatically upon a call to SignIn(), if successful.
 	// Otherwise, it will be populated upon a call to Allowed()—again, if
@@ -130,6 +149,38 @@ func (g *Gas) ServeFile(path string) {
 // Simple wrapper around `http.Redirect`.
 func (g *Gas) Redirect(path string, code int) {
 	http.Redirect(g.ResponseWriter, g.Request, path, code)
+}
+
+// Perform a redirect, but first place a cookie on the client containing an
+// arbitrary JSON blob encoded from the data passed in. The recieving handler
+// should then check for the RerouteInfo on the request, and handle the special
+// case if necessary.
+func (g *Gas) Reroute(path string, code int, data interface{}) {
+	var cookieVal string
+
+	if data != nil {
+		reroute := &RerouteInfo{
+			From: g.URL.Path,
+			Val:  data,
+		}
+
+		val, err := json.Marshal(reroute)
+		if err == nil {
+			cookieVal = base64.StdEncoding.EncodeToString(val)
+		} else {
+			Log(Warning, "gas: reroute: %v", err)
+		}
+	}
+
+	g.SetCookie(&http.Cookie{
+		// Make it only visible on the target page (though if it's root it'll
+		// be everywhere, whatever)
+		Path:  path,
+		Name:  "_reroute",
+		Value: cookieVal,
+	})
+
+	g.Redirect(path, code)
 }
 
 // Serve up an error page from /templates/errors. Templates in that directory

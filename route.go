@@ -1,6 +1,7 @@
 package gas
 
 import (
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"strings"
@@ -177,7 +178,7 @@ func (r *Router) Delete(pattern string, handler Handler) *Router {
 func dispatch(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		if nuke := recover(); nuke != nil {
-			g := &Gas{w, r, nil, nil}
+			g := &Gas{ResponseWriter: w, Request: r}
 			var (
 				err error
 				ok  bool
@@ -197,10 +198,37 @@ func dispatch(w http.ResponseWriter, r *http.Request) {
 		router = default_router
 	}
 
+	g := &Gas{
+		ResponseWriter: w,
+		Request:        r,
+	}
+
+	// Handle reroute cookie if there is one
+	// BUG: currently it's decoding RerouteInfo.Val as a map[string]interface{}
+	// instead of the original type because that type information isn't present
+	// here. Consider making a method on *Gas to populate an object of the
+	// original type passed in.
+	reroute, err := g.Cookie("_reroute")
+	if err == nil {
+		blob, err := base64.StdEncoding.DecodeString(reroute.Value)
+
+		if err == nil {
+			g.RerouteInfo = &RerouteInfo{raw: blob}
+		} else {
+			Log(Warning, "gas: dispatch reroute: %v", err)
+		}
+
+		// Empty the cookie out and toss it back
+		reroute.Value = ""
+		reroute.MaxAge = -1
+
+		g.SetCookie(reroute)
+	}
+
 	if values, handler := router.match(r); handler != nil {
-		handler(&Gas{w, r, values, nil})
+		g.Args = values
+		handler(g)
 	} else {
-		g := &Gas{w, r, values, nil}
 		g.Error(404, nil)
 		Log(Debug, "404 serving %s", r.URL.Path)
 		return
