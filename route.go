@@ -204,10 +204,6 @@ func dispatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Handle reroute cookie if there is one
-	// BUG: currently it's decoding RerouteInfo.Val as a map[string]interface{}
-	// instead of the original type because that type information isn't present
-	// here. Consider making a method on *Gas to populate an object of the
-	// original type passed in.
 	reroute, err := g.Cookie("_reroute")
 	if err == nil {
 		blob, err := base64.StdEncoding.DecodeString(reroute.Value)
