@@ -17,7 +17,7 @@ import (
 // the other templates.
 var (
 	Templates        map[string]*template.Template
-	templateLock     sync.Mutex
+	templateLock     sync.RWMutex
 	template_dir     = "templates"
 	template_funcmap map[string]template.FuncMap
 	global_funcmap   = template.FuncMap{
@@ -81,6 +81,9 @@ func markdown(in []byte) template.HTML {
 }
 
 func parse_templates(base string) map[string]*template.Template {
+	templateLock.Lock()
+	defer templateLock.Unlock()
+
 	ts := make(map[string]*template.Template)
 	fis, err := ioutil.ReadDir(base)
 	if err != nil {
@@ -115,23 +118,16 @@ func parse_templates(base string) map[string]*template.Template {
 	return ts
 }
 
-func (g *Gas) exec_template(path, name string, data interface{}) {
-	var (
-		group *template.Template
-		w     io.Writer = g.ResponseWriter
-	)
+// Render the given template by name out of the given directory.
+func (g *Gas) Render(path, name string, data interface{}) {
+	templateLock.RLock()
+	defer templateLock.RUnlock()
 
-	if g.Request.Header.Get("X-Ajax-Partial") != "" {
-		// If it's a partial page request, try to serve a partial template
-		// (denoted by a '%' prepended to the template name). If it doesn't
-		// exist, fall back to the regular one.
-		group = Templates["%"+path]
-		if group == nil {
-			group = Templates[path]
-		}
-	} else {
-		group = Templates[path]
-	}
+	var (
+		w     io.Writer = g.ResponseWriter
+		group           = Templates[path]
+		t     *template.Template
+	)
 
 	if group == nil {
 		Log(Warning, "Failed to access template group \"%s\"", path)
@@ -139,7 +135,17 @@ func (g *Gas) exec_template(path, name string, data interface{}) {
 		return
 	}
 
-	t := group.Lookup(name)
+	// If it's a partial page request, try to serve a partial template
+	// (denoted by a '%' prepended to the template name). If it doesn't
+	// exist, fall back to the regular one.
+	if g.Request.Header.Get("X-Ajax-Partial") != "" {
+		t = group.Lookup("%" + name)
+		if t == nil {
+			t = group.Lookup(name)
+		}
+	} else {
+		t = group.Lookup(name)
+	}
 
 	if t == nil {
 		Log(Warning, "No such template: %s/%s", path, name)
@@ -162,9 +168,20 @@ func (g *Gas) exec_template(path, name string, data interface{}) {
 	}
 }
 
-// Render the given template by name out of the given directory.
-func (g *Gas) Render(path, name string, data interface{}) {
-	templateLock.Lock()
-	defer templateLock.Unlock()
-	g.exec_template(path, name, data)
+// Render a template anywhere.
+func ExecTemplate(w io.Writer, path, name string, data interface{}) error {
+	templateLock.RLock()
+	defer templateLock.RUnlock()
+
+	group := Templates[path]
+	if group == nil {
+		return fmt.Errorf("gas: ExecTemplate: template group '%s' not found", path)
+	}
+
+	t := group.Lookup(name)
+	if t == nil {
+		return fmt.Errorf("gas: ExecTemplate: named template '%s' not found in group '%s'", name, path)
+	}
+
+	return t.Execute(w, data)
 }
