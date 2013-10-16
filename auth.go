@@ -260,7 +260,7 @@ func (g *Gas) SignIn() error {
 	good, err := VerifyPass(user, g.FormValue("pass"))
 
 	if !good || err != nil {
-		return errBadPassword
+		return err
 	}
 
 	sessid, err := NewSession(cookies.auth, user)
