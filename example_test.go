@@ -2,6 +2,7 @@ package gas
 
 import (
 	"reflect"
+	"time"
 )
 
 //import "fmt"
@@ -25,17 +26,17 @@ func ExampleSelectRow() {
 }
 */
 
-var g *gas.Gas
+var g *Gas
 
 type myAuther struct{}
 
-func (myAuther) CreateSession(a, b []byte, t time.Time, s string) error { return nil }
-func (myAuther) ReadSession(name, id []byte) (*Session, error)          { return nil, nil }
-func (myAuther) UpdateSession(name, id []byte) error                    { return nil }
-func (myAuther) DeleteSession(name, id []byte) error                    { return nil }
-func (myAuther) UserAuthData(string) (pass, salt []byte, err error)     { return nil, nil, nil }
-func (myAuther) User(name string) (User, error)                         { return nil, nil }
-func (myAuther) NilUser() User                                          { return nil }
+func (myAuther) CreateSession(a []byte, t time.Time, s string) error { return nil }
+func (myAuther) ReadSession(id []byte) (*Session, error)             { return nil, nil }
+func (myAuther) UpdateSession(id []byte) error                       { return nil }
+func (myAuther) DeleteSession(id []byte) error                       { return nil }
+func (myAuther) UserAuthData(name string) ([]byte, []byte, error)    { return nil, nil, nil }
+func (myAuther) User(name string) (User, error)                      { return nil, nil }
+func (myAuther) NilUser() User                                       { return nil }
 
 func ExampleUseCookies() {
 	// During app init

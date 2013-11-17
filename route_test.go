@@ -1,6 +1,12 @@
 package gas
 
-import "testing"
+import (
+	"io/ioutil"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
+	"testing"
+)
 
 func mapeq(m1, m2 map[string]string) bool {
 	if len(m1) != len(m2) {
@@ -43,7 +49,7 @@ var tests = []Test{
 func TestMatch(t *testing.T) {
 	for _, test := range tests {
 		p := false
-		m := new_route("GET", test.pat, nil)
+		m := newRoute("GET", test.pat, nil)
 		vals, ok := m.match("GET", test.url)
 		if !mapeq(vals, test.vals) {
 			t.Log(m)
@@ -61,6 +67,50 @@ func TestMatch(t *testing.T) {
 	}
 }
 
+func testGet(t *testing.T, srv *httptest.Server, url, expected string) {
+	url = srv.URL + url
+	resp, err := http.Get(url)
+	if err != nil {
+		t.Errorf("testGet %s: %v", url, err)
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		t.Errorf("testGet %s: %v", url, err)
+		return
+	}
+
+	if s := string(body); s != expected {
+		t.Errorf("testGet %s: expected '%s', got '%s'", url, expected, s)
+	}
+}
+
+func TestDispatch(t *testing.T) {
+	New().Get("/test1", func(g *Gas) {
+		g.Write([]byte("yes"))
+	}).Get("/test2", func(g *Gas) {
+		g.SetData("something", 6)
+		g.SetData("something else", "test")
+	}, func(g *Gas) {
+		g.Write([]byte(g.Data("something else").(string)))
+	}).Get("/test3", func(g *Gas) {
+		g.SetData("test", 10)
+	}, func(g *Gas) {
+		g.Write([]byte(strconv.Itoa(g.Data("test").(int))))
+	}, func(g *Gas) {
+		g.Write([]byte("nope"))
+	})
+
+	srv := httptest.NewServer(http.HandlerFunc(dispatch))
+	defer srv.Close()
+
+	testGet(t, srv, "/test1", "yes")
+	testGet(t, srv, "/test2", "test")
+	testGet(t, srv, "/test3", "10")
+}
+
 type Bench struct {
 	route *route
 	url   string
@@ -71,7 +121,7 @@ var bb []Bench
 func init() {
 	bb = make([]Bench, len(tests))
 	for i := range bb {
-		bb[i] = Bench{new_route("GET", tests[i].pat, nil), tests[i].url}
+		bb[i] = Bench{newRoute("GET", tests[i].pat, nil), tests[i].url}
 	}
 }
 

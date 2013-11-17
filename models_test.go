@@ -35,8 +35,16 @@ type Tester5 struct {
 }
 
 func match(t *testing.T, test *Tester, a string, b int, c time.Time) {
-	if test.TextField != a || test.B != b || test.SomeSortOfDateTime != c {
-		t.Error(test)
+	ts := test.SomeSortOfDateTime
+	if test.TextField != a ||
+		test.B != b ||
+		ts.Hour() != c.Hour() ||
+		ts.Minute() != c.Minute() ||
+		ts.Second() != c.Second() ||
+		ts.Day() != c.Day() ||
+		ts.Month() != c.Month() ||
+		ts.Year() != c.Year() {
+		t.Errorf("Got: %v\nExpected: %v %v %v", test, a, b, c)
 	}
 }
 
@@ -63,13 +71,13 @@ func TestDBQuery(t *testing.T) {
 	InitDB("postgres", "user=postgres dbname=postgres sslmode=disable")
 	defer DB.Close()
 
-	dateFmt := "2006-01-02 15:04:05 -0700"
-	t1, _ := time.Parse(dateFmt, "2013-09-24 17:27:00 -0700")
-	t2, _ := time.Parse(dateFmt, "2012-12-12 12:12:12 -0800")
+	dateFmt := "2006-01-02 15:04:05"
+	t1, _ := time.Parse(dateFmt, "2013-09-24 17:27:00")
+	t2, _ := time.Parse(dateFmt, "2012-12-12 12:12:12")
 
-	exec(t, "CREATE TEMP TABLE go_test ( text_field text, b integer, c timestamptz )")
-	exec(t, "INSERT INTO go_test VALUES ( 'testing', 9001, '2013-09-24 17:27:00-07' )")
-	exec(t, "INSERT INTO go_test VALUES ( 'testing 2', 666, '2012-12-12 12:12:12-08' )")
+	exec(t, "CREATE TEMP TABLE go_test ( text_field text, b integer, c timestamp )")
+	exec(t, "INSERT INTO go_test VALUES ( 'testing', 9001, '2013-09-24 17:27:00' )")
+	exec(t, "INSERT INTO go_test VALUES ( 'testing 2', 666, '2012-12-12 12:12:12' )")
 
 	test := new(Tester)
 	err := QueryRow(test, "SELECT * FROM go_test LIMIT 1")

@@ -124,14 +124,13 @@ func (g *Gas) Render(path, name string, data interface{}) {
 	defer templateLock.RUnlock()
 
 	var (
-		w     io.Writer = g.ResponseWriter
-		group           = Templates[path]
+		group = Templates[path]
 		t     *template.Template
 	)
 
 	if group == nil {
 		Log(Warning, "Failed to access template group \"%s\"", path)
-		fmt.Fprintf(w, "Error: template group \"%s\" not found. Did it fail to compile?", path)
+		fmt.Fprintf(g, "Error: template group \"%s\" not found. Did it fail to compile?", path)
 		return
 	}
 
@@ -149,20 +148,20 @@ func (g *Gas) Render(path, name string, data interface{}) {
 
 	if t == nil {
 		Log(Warning, "No such template: %s/%s", path, name)
-		fmt.Fprintf(w, "Error: no such template: %s/%s", path, name)
+		fmt.Fprintf(g, "Error: no such template: %s/%s", path, name)
 		return
 	}
-	if err := t.Execute(w, data); err != nil {
+	if err := t.Execute(g, data); err != nil {
 		t = Templates[path].Lookup(name + "-error")
 		Log(Warning, "Failed to render template %s/%s: %v", path, name, err)
 		if t == nil {
 			Log(Warning, "Template %s/%s has no error template", path, name)
-			fmt.Fprintf(w, "Error: failed to serve error page for %s/%s (error template not found)", path, name)
+			fmt.Fprintf(g, "Error: failed to serve error page for %s/%s (error template not found)", path, name)
 			return
 		}
-		if err = t.Execute(w, err); err != nil {
+		if err = t.Execute(g, err); err != nil {
 			Log(Warning, "Failed to render error template for %s/%s (%v)", path, name, err)
-			fmt.Fprintf(w, "Error: failed to serve error page for %s/%s (%v)", path, name, err)
+			fmt.Fprintf(g, "Error: failed to serve error page for %s/%s (%v)", path, name, err)
 			return
 		}
 	}
