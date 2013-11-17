@@ -50,15 +50,15 @@ func (m matcher) match(s string) string {
 type route struct {
 	method   string
 	matchers []matcher
-	handler  Handler
+	handlers []Handler
 }
 
 // Compile a route string into a usable format.
-func new_route(method, pattern string, handler Handler) (r *route) {
+func newRoute(method, pattern string, handlers []Handler) (r *route) {
 	r = new(route)
 	r.method = method
 	r.matchers = make([]matcher, 0)
-	r.handler = handler
+	r.handlers = handlers
 
 	last := 0
 	for i := 0; i < len(pattern); i++ {
@@ -138,41 +138,40 @@ func New(subdomains ...string) (r *Router) {
 	return
 }
 
-func (r *Router) match(req *http.Request) (map[string]string, Handler) {
+func (r *Router) match(req *http.Request) (map[string]string, []Handler) {
 	for _, route := range r.routes {
 		if values, ok := route.match(req.Method, req.URL.Path); ok {
-			return values, route.handler
+			return values, route.handlers
 		}
 	}
 	return nil, nil
 }
 
-// Add a route to the router using the given methods.
-func (r *Router) Add(pattern string, handler Handler, methods ...string) *Router {
-	for _, m := range methods {
-		r.routes = append(r.routes, new_route(m, pattern, handler))
-	}
+// Add a route to the router using the given method.
+func (r *Router) Add(pattern string, method string, handlers ...Handler) *Router {
+	r.routes = append(r.routes, newRoute(method, pattern, handlers))
 	return r
 }
 
-func (r *Router) Head(pattern string, handler Handler) *Router {
-	return r.Add(pattern, handler, "HEAD")
+func (r *Router) Head(pattern string, handlers ...Handler) *Router {
+	return r.Add(pattern, "HEAD", handlers...)
 }
 
-func (r *Router) Get(pattern string, handler Handler) *Router {
-	return r.Add(pattern, handler, "HEAD", "GET")
+func (r *Router) Get(pattern string, handlers ...Handler) *Router {
+	// Go1.2 adds HEAD to GET automatically
+	return r.Add(pattern, "GET", handlers...)
 }
 
-func (r *Router) Post(pattern string, handler Handler) *Router {
-	return r.Add(pattern, handler, "POST")
+func (r *Router) Post(pattern string, handlers ...Handler) *Router {
+	return r.Add(pattern, "POST", handlers...)
 }
 
-func (r *Router) Put(pattern string, handler Handler) *Router {
-	return r.Add(pattern, handler, "PUT")
+func (r *Router) Put(pattern string, handlers ...Handler) *Router {
+	return r.Add(pattern, "PUT", handlers...)
 }
 
-func (r *Router) Delete(pattern string, handler Handler) *Router {
-	return r.Add(pattern, handler, "DELETE")
+func (r *Router) Delete(pattern string, handlers ...Handler) *Router {
+	return r.Add(pattern, "DELETE", handlers...)
 }
 
 func dispatch(w http.ResponseWriter, r *http.Request) {
@@ -221,9 +220,14 @@ func dispatch(w http.ResponseWriter, r *http.Request) {
 		g.SetCookie(reroute)
 	}
 
-	if values, handler := router.match(r); handler != nil {
-		g.Args = values
-		handler(g)
+	if values, handlers := router.match(r); handlers != nil {
+		g.args = values
+		for _, handler := range handlers {
+			handler(g)
+			if g.responseWritten {
+				break
+			}
+		}
 	} else {
 		g.Error(404, nil)
 		Log(Debug, "404 serving %s", r.URL.Path)

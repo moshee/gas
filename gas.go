@@ -123,7 +123,9 @@ func Log(level LogLevel, format string, args ...interface{}) {
 type Gas struct {
 	http.ResponseWriter
 	*http.Request
-	Args map[string]string
+	args            map[string]string
+	data            map[string]interface{}
+	responseWritten bool
 
 	*RerouteInfo
 
@@ -139,6 +141,43 @@ func (g *Gas) Allowed(privileges interface{}) (bool, error) {
 		return false, errNotLoggedIn
 	}
 	return g.user.Allowed(privileges), nil
+}
+
+func (g *Gas) Arg(key string) string {
+	if g.args != nil {
+		return g.args[key]
+	}
+	return ""
+}
+
+func (g *Gas) IntArg(key string) (int, error) {
+	return strconv.Atoi(g.Arg(key))
+}
+
+// attach some arbitrary data to this context that can be accessed further down
+// the chain
+func (g *Gas) SetData(key string, val interface{}) {
+	if g.data == nil {
+		g.data = make(map[string]interface{})
+	}
+	g.data[key] = val
+}
+
+// Access the data that an upstream handler might've left behind
+func (g *Gas) Data(key string) interface{} {
+	if g.data != nil {
+		return g.data[key]
+	}
+	return nil
+}
+
+// Write a response to the underlying http.ResponseWriter, flagging the request
+// as complete. If the request is complete, it will not travel further down the
+// handler chain. One handler may call Write multiple times, but downstream
+// handlers will not be evaluated.
+func (g *Gas) Write(p []byte) (n int, err error) {
+	g.responseWritten = true
+	return g.ResponseWriter.Write(p)
 }
 
 // Simple wrapper around `http.ServeFile`.
