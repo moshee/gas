@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 )
 
@@ -177,7 +176,10 @@ func (r *Router) Delete(pattern string, handlers ...Handler) *Router {
 func dispatch(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		if nuke := recover(); nuke != nil {
-			g := &Gas{ResponseWriter: w, Request: r}
+			g := &Gas{w: w, Request: r}
+
+			notify(g.Domain(), &Panic{nuke, time.Now(), g})
+
 			var (
 				err error
 				ok  bool
@@ -191,15 +193,15 @@ func dispatch(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	r.Close = true
 
-	now := time.Now()
-	router := routers[strings.Split(r.Host, ":")[0]]
-	if router == nil {
-		router = default_router
+	g := &Gas{
+		w:       w,
+		Request: r,
 	}
 
-	g := &Gas{
-		ResponseWriter: w,
-		Request:        r,
+	now := time.Now()
+	router := routers[g.Domain()]
+	if router == nil {
+		router = default_router
 	}
 
 	// Handle reroute cookie if there is one
@@ -224,15 +226,16 @@ func dispatch(w http.ResponseWriter, r *http.Request) {
 		g.args = values
 		for _, handler := range handlers {
 			handler(g)
-			if g.responseWritten {
+
+			// don't continue down the handler chain if a response has been
+			// written
+			if g.responseCode != 0 {
 				break
 			}
 		}
 	} else {
 		g.Error(404, nil)
-		Log(Debug, "404 serving %s", r.URL.Path)
-		return
 	}
 
-	Log(Debug, "%v\t%s\t%s %s%s\tfrom %s", time.Now().Sub(now), r.RemoteAddr, r.Method, r.Host, r.URL.Path, r.Header.Get("Referer"))
+	notify(g.Domain(), &HTTPRequest{time.Now().Sub(now), now, g})
 }

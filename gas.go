@@ -1,4 +1,8 @@
+// package gas implements some sort of web framework
 package gas
+
+// gas.go contains initialization code and a big pile of things that don't
+// belong in or are too small for their own files
 
 import (
 	"encoding/base64"
@@ -120,12 +124,17 @@ func Log(level LogLevel, format string, args ...interface{}) {
 // handler functions. Comes with embedded standard net/http arguments as well
 // as the captured URL variables (if any), and has some convenience methods
 // attached.
+//
+// Gas satisfies the http.ResponseWriter interface.
 type Gas struct {
-	http.ResponseWriter
+	w http.ResponseWriter
 	*http.Request
-	args            map[string]string
-	data            map[string]interface{}
-	responseWritten bool
+	args map[string]string
+	data map[string]interface{}
+
+	// The HTTP response code that was written to the request. If a response
+	// has not be written yet, responseCode will be 0.
+	responseCode int
 
 	*RerouteInfo
 
@@ -171,23 +180,27 @@ func (g *Gas) Data(key string) interface{} {
 	return nil
 }
 
-// Write a response to the underlying http.ResponseWriter, flagging the request
-// as complete. If the request is complete, it will not travel further down the
-// handler chain. One handler may call Write multiple times, but downstream
-// handlers will not be evaluated.
 func (g *Gas) Write(p []byte) (n int, err error) {
-	g.responseWritten = true
-	return g.ResponseWriter.Write(p)
+	return g.w.Write(p)
+}
+
+func (g *Gas) WriteHeader(code int) {
+	g.responseCode = code
+	g.w.WriteHeader(code)
+}
+
+func (g *Gas) Header() http.Header {
+	return g.w.Header()
 }
 
 // Simple wrapper around `http.ServeFile`.
 func (g *Gas) ServeFile(path string) {
-	http.ServeFile(g.ResponseWriter, g.Request, path)
+	http.ServeFile(g, g.Request, path)
 }
 
 // Simple wrapper around `http.Redirect`.
 func (g *Gas) Redirect(path string, code int) {
-	http.Redirect(g.ResponseWriter, g.Request, path, code)
+	http.Redirect(g, g.Request, path, code)
 }
 
 // Perform a redirect, but first place a cookie on the client containing an
@@ -244,18 +257,18 @@ func (g *Gas) Error(code int, err error) {
 
 // Simple wrapper around http.SetCookie.
 func (g *Gas) SetCookie(cookie *http.Cookie) {
-	http.SetCookie(g.ResponseWriter, cookie)
+	http.SetCookie(g, cookie)
 }
 
 // Simple wrapper around (http.ResponseWriter).Header().Set
 func (g *Gas) SetHeader(key, vals string) {
-	g.ResponseWriter.Header().Set(key, vals)
+	g.Header().Set(key, vals)
 }
 
 // Write the given value as JSON to the client.
 func (g *Gas) JSON(val interface{}) error {
-	g.ResponseWriter.Header().Set("Content-Type", "application/json")
-	e := json.NewEncoder(g.ResponseWriter)
+	g.Header().Set("Content-Type", "application/json")
+	e := json.NewEncoder(g)
 	return e.Encode(val)
 }
 

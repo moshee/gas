@@ -23,6 +23,8 @@ My personal homegrown web framework, take 2.
 - SSL
 - ~~Markdown~~ *GOT IT!*
 - More tests
+  - Benchmark routers
+  - Test event dispatching
 - Documentation (for myself more than anyone else)
 - Analytics (referer, reverse DNS, location, and the like)
 - Handler func panic recovery (500 error or something) *(In progress)*
