@@ -26,3 +26,5 @@ My personal homegrown web framework, take 2.
 - Documentation (for myself more than anyone else)
 - Analytics (referer, reverse DNS, location, and the like)
 - Handler func panic recovery (500 error or something) *(In progress)*
+- Log rotation
+- Concurrent stat logging (send various events—panic, pageview, etc—on a channel, client listens and typeswitch)
