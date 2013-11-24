@@ -143,6 +143,9 @@ func (g *Gas) Data(key string) interface{} {
 }
 
 func (g *Gas) Write(p []byte) (n int, err error) {
+	if g.responseCode == 0 {
+		g.responseCode = 200
+	}
 	return g.w.Write(p)
 }
 
@@ -286,7 +289,7 @@ func Ignition() {
 
 	now := time.Now().Format("2006-01-02 15:04")
 
-	LogNotice("\n\nSession: %s", now)
+	LogNotice("=== Session: %s =========================", now)
 
 	if DB != nil {
 		defer DB.Close()
@@ -315,10 +318,10 @@ func Ignition() {
 		}
 	*/
 	port_string := ":" + strconv.Itoa(*flag_port)
-	http.HandleFunc("/", dispatch)
 
 	srv := &http.Server{
 		Addr:         port_string,
+		Handler:      http.HandlerFunc(dispatch),
 		ReadTimeout:  60 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}

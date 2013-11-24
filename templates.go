@@ -87,7 +87,7 @@ func parse_templates(base string) map[string]*template.Template {
 	ts := make(map[string]*template.Template)
 	fis, err := ioutil.ReadDir(base)
 	if err != nil {
-		Log(Fatal, "Couldn't open templates directory: %v\n", err)
+		LogFatal("Couldn't open templates directory: %v\n", err)
 	}
 	for _, fi := range fis {
 		if !fi.IsDir() {
@@ -95,7 +95,7 @@ func parse_templates(base string) map[string]*template.Template {
 		}
 
 		name := fi.Name()
-		Log(Debug, "found template dir '%s'", name)
+		LogDebug("found template dir '%s'", name)
 
 		local_funcmap, ok := template_funcmap[name]
 		if !ok {
@@ -110,7 +110,7 @@ func parse_templates(base string) map[string]*template.Template {
 			Funcs(template.FuncMap(local_funcmap)).
 			ParseGlob(filepath.Join(base, name, "*.tmpl"))
 		if err != nil {
-			Log(Warning, "failed to parse templates in %s: %v\n", name, err)
+			LogWarning("failed to parse templates in %s: %v\n", name, err)
 		}
 
 		ts[name] = t
@@ -129,7 +129,7 @@ func (g *Gas) Render(path, name string, data interface{}) {
 	)
 
 	if group == nil {
-		Log(Warning, "Failed to access template group \"%s\"", path)
+		LogWarning("Failed to access template group \"%s\"", path)
 		fmt.Fprintf(g, "Error: template group \"%s\" not found. Did it fail to compile?", path)
 		return
 	}
@@ -147,20 +147,20 @@ func (g *Gas) Render(path, name string, data interface{}) {
 	}
 
 	if t == nil {
-		Log(Warning, "No such template: %s/%s", path, name)
+		LogWarning("No such template: %s/%s", path, name)
 		fmt.Fprintf(g, "Error: no such template: %s/%s", path, name)
 		return
 	}
 	if err := t.Execute(g, data); err != nil {
 		t = Templates[path].Lookup(name + "-error")
-		Log(Warning, "Failed to render template %s/%s: %v", path, name, err)
+		LogWarning("Failed to render template %s/%s: %v", path, name, err)
 		if t == nil {
-			Log(Warning, "Template %s/%s has no error template", path, name)
+			LogWarning("Template %s/%s has no error template", path, name)
 			fmt.Fprintf(g, "Error: failed to serve error page for %s/%s (error template not found)", path, name)
 			return
 		}
 		if err = t.Execute(g, err); err != nil {
-			Log(Warning, "Failed to render error template for %s/%s (%v)", path, name, err)
+			LogWarning("Failed to render error template for %s/%s (%v)", path, name, err)
 			fmt.Fprintf(g, "Error: failed to serve error page for %s/%s (%v)", path, name, err)
 			return
 		}
