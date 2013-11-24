@@ -29,4 +29,6 @@ My personal homegrown web framework, take 2.
 - Analytics (referer, reverse DNS, location, and the like)
 - Handler func panic recovery (500 error or something) *(In progress)*
 - Log rotation
-- Concurrent stat logging (send various events—panic, pageview, etc—on a channel, client listens and typeswitch)
+- Concurrent stat logging (send various events—panic, pageview, etc—on a channel, client listens and typeswitch) *(Needs testing)*
+- Asset pipeline that makes dealing with/serving assets nicer, plus support for @2x images and such
+- Replace DefaultServeMux with a simpler handler in the Server

@@ -13,8 +13,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
-	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -40,21 +40,22 @@ func init() {
 	flag.Parse()
 	Verbosity = LogLevel(*flag_verbosity)
 
-	var (
-		logfile *os.File
-		err     error
-	)
+	var err error
 
 	if *flag_log != "" {
-		logfile, err = os.OpenFile(*flag_log, os.O_TRUNC|os.O_CREATE, 0)
+		logFile, err = os.OpenFile(*flag_log, os.O_CREATE|os.O_APPEND|os.O_RDWR, os.FileMode(0644))
 		if err != nil {
 			log.Fatal(err)
 			os.Exit(1)
 		}
+		logFilePath, err = filepath.Abs(*flag_log)
+		if err != nil {
+			log.Fatal(err)
+		}
 	} else {
-		logfile = os.Stdout
+		logFile = os.Stdout
 	}
-	logger = log.New(logfile, "", log.LstdFlags)
+	logger = log.New(logFile, "", log.LstdFlags)
 
 	signal.Notify(sigchan)
 }
@@ -79,45 +80,6 @@ type Error struct {
 	Path  string
 	Err   error
 	Stack string
-}
-
-type LogLevel int
-
-const (
-	None LogLevel = iota
-	Fatal
-	Warning
-	Notice
-	Debug
-)
-
-var (
-	Verbosity LogLevel = None
-	logger    *log.Logger
-)
-
-func (l LogLevel) String() string {
-	switch l {
-	case Fatal:
-		return "FATAL: "
-	case Warning:
-		return "Warning: "
-	}
-	return ""
-}
-
-func Log(level LogLevel, format string, args ...interface{}) {
-	if logger == nil {
-		return
-	}
-
-	if Verbosity >= level {
-		logger.Printf(level.String()+format, args...)
-		if Verbosity == Fatal {
-			debug.PrintStack()
-			os.Exit(1)
-		}
-	}
 }
 
 // Request context. All incoming requests are boxed into a *Gas and passed to
@@ -187,6 +149,10 @@ func (g *Gas) Write(p []byte) (n int, err error) {
 func (g *Gas) WriteHeader(code int) {
 	g.responseCode = code
 	g.w.WriteHeader(code)
+}
+
+func (g *Gas) ResponseCode() int {
+	return g.responseCode
 }
 
 func (g *Gas) Header() http.Header {
@@ -308,6 +274,20 @@ func handle_signals(c chan os.Signal) {
 // server running on the given port. This should be the last call in the main()
 // function.
 func Ignition() {
+	if Verbosity > None {
+		logChan = make(chan logMessage, 10)
+		logNeedRotate = make(chan time.Time)
+
+		go logLines(logChan, logNeedRotate)
+
+		// XXX: arbitrarily chosen time duration, tweak as needed!
+		go pollLogfile(5*time.Second, logNeedRotate)
+	}
+
+	now := time.Now().Format("2006-01-02 15:04")
+
+	LogNotice("\n\nSession: %s", now)
+
 	if DB != nil {
 		defer DB.Close()
 	}
@@ -338,8 +318,9 @@ func Ignition() {
 	http.HandleFunc("/", dispatch)
 
 	srv := &http.Server{
-		Addr:        port_string,
-		ReadTimeout: 30 * time.Second,
+		Addr:         port_string,
+		ReadTimeout:  60 * time.Second,
+		WriteTimeout: 10 * time.Second,
 	}
 	Log(Fatal, "%v", srv.ListenAndServe())
 }
