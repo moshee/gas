@@ -189,13 +189,13 @@ func (self *field) match(column string) bool {
 }
 
 var (
-	errNotPtr        = "gas: models: %T: target is not a pointer"
-	errNotStruct     = "gas: models: %T: target is not a pointer to a struct"
-	errRecursiveType = "gas: models: %T: cannot register recursive type (this must be dealt with manually)"
-	errEmptyStruct   = "gas: models: %T: what's the point of registering an empty struct?"
-	errNotSlice      = errors.New("gas: query: destination is not a pointer to a slice")
-	errNoRows        = errors.New("gas: QueryRow: no rows returned")
-	errBadQueryType  = errors.New("gas: query: query must be either of type string or *sql.Stmt")
+	errNotSliceOrStruct = "gas: models: %T: target is not a pointer to a struct or a slice"
+	errNotPtr           = "gas: models: %T: target is not a pointer"
+	errNotStruct        = "gas: models: %T: target is not a pointer to a struct"
+	errRecursiveType    = "gas: models: %T: cannot register recursive type (this must be dealt with manually)"
+	errEmptyStruct      = "gas: models: %T: what's the point of registering an empty struct?"
+	errNoRows           = errors.New("gas: QueryRow: no rows returned")
+	errBadQueryType     = errors.New("gas: query: query must be either of type string or *sql.Stmt")
 )
 
 // Register a model with the system. The reflect.Type should be of a *T or
@@ -248,9 +248,10 @@ func Register(t reflect.Type) (*model, error) {
 	return m, nil
 }
 
-// Query a single row into a struct. For simple primitive types, use database/sql.
-func QueryRow(dest interface{}, query interface{}, args ...interface{}) error {
-	model, err := Register(reflect.TypeOf(dest))
+// Query into a single row or a slice.
+func Query(dest, query interface{}, args ...interface{}) error {
+	t := reflect.TypeOf(dest)
+	model, err := Register(t)
 	if err != nil {
 		return err
 	}
@@ -274,52 +275,64 @@ func QueryRow(dest interface{}, query interface{}, args ...interface{}) error {
 	}
 	defer rows.Close()
 
+	switch t.Kind() {
+	case reflect.Ptr:
+		if t.Elem().Kind() != reflect.Struct {
+			if t.Elem().Kind() == reflect.Slice {
+				return querySlice(model, dest, rows)
+			} else {
+				return fmt.Errorf(errNotSliceOrStruct, dest)
+			}
+			return fmt.Errorf(errNotStruct, dest)
+		}
+		return queryRow(model, dest, rows)
+
+	case reflect.Slice:
+		if elem := t.Elem(); elem.Kind() == reflect.Ptr {
+			if elem.Elem().Kind() != reflect.Struct {
+				return fmt.Errorf(errNotStruct, dest)
+			}
+		} else if elem.Kind() != reflect.Struct {
+			return fmt.Errorf(errNotStruct, dest)
+		}
+		return querySlice(model, dest, rows)
+
+	default:
+		return fmt.Errorf(errNotSliceOrStruct, dest)
+	}
+}
+
+// Query a single row into a struct. For simple primitive types, use database/sql.
+func queryRow(model *model, dest interface{}, rows *sql.Rows) error {
 	val := reflect.ValueOf(dest).Elem()
 
 	if !rows.Next() {
 		return errNoRows
 	}
 
-	_, err = model.scan(val, rows, 0)
+	_, err := model.scan(val, rows, 0)
 	return err
 }
 
 // Query multiple rows into a slice.
-func Query(slice interface{}, query interface{}, args ...interface{}) error {
-	t := reflect.TypeOf(slice)
-	if t.Kind() != reflect.Ptr && t.Elem().Kind() != reflect.Slice {
-		return errNotSlice
-	}
-
-	model, err := Register(t)
-	if err != nil {
-		return err
-	}
-
-	var rows *sql.Rows
-	switch q := query.(type) {
-	case string:
-		rows, err = DB.Query(q, args...)
-	case *sql.Stmt:
-		rows, err = q.Query(args...)
-	default:
-		return errBadQueryType
-	}
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-
+func querySlice(model *model, slice interface{}, rows *sql.Rows) error {
 	// var slice *[]T
 	// sliceVal := *slice
-	sliceVal := reflect.ValueOf(slice).Elem()
-	foundCap := 0
+	var (
+		sliceVal = reflect.ValueOf(slice).Elem()
+		foundCap = 0
+		err      error
+	)
+	// first, populate the existing allocated elements in the slice. If it's an
+	// empty slice, this loop will effectively be skipped.
 	for i := 0; i < sliceVal.Len() && rows.Next(); i++ {
 		if foundCap, err = model.scan(sliceVal.Index(i), rows, foundCap); err != nil {
 			return err
 		}
 	}
 
+	// now start scanning into new values and append to the slice. If we're
+	// already done, this loop will effectively be skipped.
 	// var sliceElemType type = T
 	sliceElemType := sliceVal.Type().Elem()
 	for rows.Next() {
@@ -328,33 +341,6 @@ func Query(slice interface{}, query interface{}, args ...interface{}) error {
 			return err
 		}
 		sliceVal.Set(reflect.Append(sliceVal, val.Elem()))
-	}
-
-	return nil
-}
-
-// A shortcut to Query or QueryRow. Populate will choose the correct function
-// for dest's type (Query for slice, QueryRow for struct). If an error occurs
-// during the query, Populate performs the default action of sending an HTTP
-// 500 reply with the error.
-func (g *Gas) Populate(dest interface{}, query interface{}, args ...interface{}) error {
-	t := reflect.TypeOf(dest)
-	if t.Kind() != reflect.Ptr {
-		return fmt.Errorf(errNotPtr, dest)
-	}
-
-	var f func(interface{}, interface{}, ...interface{}) error
-
-	switch t.Elem().Kind() {
-	case reflect.Slice:
-		f = Query
-	case reflect.Struct:
-		f = QueryRow
-	}
-
-	if err := f(dest, query, args...); err != nil {
-		g.Error(500, err)
-		return err
 	}
 
 	return nil

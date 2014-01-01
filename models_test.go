@@ -2,10 +2,11 @@ package gas
 
 import (
 	//	"database/sql"
-	_ "github.com/lib/pq"
 	"reflect"
 	"testing"
 	"time"
+
+	_ "github.com/lib/pq"
 )
 
 type Tester struct {
@@ -80,7 +81,7 @@ func TestDBQuery(t *testing.T) {
 	exec(t, "INSERT INTO go_test VALUES ( 'testing 2', 666, '2012-12-12 12:12:12' )")
 
 	test := new(Tester)
-	err := QueryRow(test, "SELECT * FROM go_test LIMIT 1")
+	err := Query(test, "SELECT * FROM go_test LIMIT 1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +100,7 @@ func TestDBQuery(t *testing.T) {
 	exec(t, "INSERT INTO go_test_2 VALUES ( 10, 66 )")
 
 	test3 := new(Tester2)
-	err = QueryRow(test3, "SELECT field_a, b, b FROM go_test_2 LIMIT 1")
+	err = Query(test3, "SELECT field_a, b, b FROM go_test_2 LIMIT 1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +114,7 @@ func TestDBQuery(t *testing.T) {
 	exec(t, "INSERT INTO go_test_3 VALUES ( 'first', 'nope', 'third' )")
 
 	test4 := new(Tester5)
-	err = QueryRow(test4, "SELECT first_column, third_column AS test FROM go_test_3 LIMIT 1")
+	err = Query(test4, "SELECT first_column, third_column AS test FROM go_test_3 LIMIT 1")
 	if err != nil {
 		t.Fatal(err)
 	}
