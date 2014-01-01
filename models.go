@@ -4,9 +4,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	_ "github.com/lib/pq"
 	"reflect"
 	"unicode"
+
+	_ "github.com/lib/pq"
 )
 
 var DB *sql.DB
@@ -194,6 +195,7 @@ var (
 	errEmptyStruct   = "gas: models: %T: what's the point of registering an empty struct?"
 	errNotSlice      = errors.New("gas: query: destination is not a pointer to a slice")
 	errNoRows        = errors.New("gas: QueryRow: no rows returned")
+	errBadQueryType  = errors.New("gas: query: query must be either of type string or *sql.Stmt")
 )
 
 // Register a model with the system. The reflect.Type should be of a *T or
@@ -247,7 +249,7 @@ func Register(t reflect.Type) (*model, error) {
 }
 
 // Query a single row into a struct. For simple primitive types, use database/sql.
-func QueryRow(dest interface{}, query string, args ...interface{}) error {
+func QueryRow(dest interface{}, query interface{}, args ...interface{}) error {
 	model, err := Register(reflect.TypeOf(dest))
 	if err != nil {
 		return err
@@ -258,7 +260,15 @@ func QueryRow(dest interface{}, query string, args ...interface{}) error {
 	// actually contains a *sql.Rows as a field, but one that is unexported. So
 	// we just have to get a Rows and only scan one row. (assuming it returns
 	// just one row). This is basically what (*sql.Row).Scan does.
-	rows, err := DB.Query(query, args...)
+	var rows *sql.Rows
+	switch q := query.(type) {
+	case string:
+		rows, err = DB.Query(q, args...)
+	case *sql.Stmt:
+		rows, err = q.Query(args...)
+	default:
+		return errBadQueryType
+	}
 	if err != nil {
 		return err
 	}
@@ -275,7 +285,7 @@ func QueryRow(dest interface{}, query string, args ...interface{}) error {
 }
 
 // Query multiple rows into a slice.
-func Query(slice interface{}, query string, args ...interface{}) error {
+func Query(slice interface{}, query interface{}, args ...interface{}) error {
 	t := reflect.TypeOf(slice)
 	if t.Kind() != reflect.Ptr && t.Elem().Kind() != reflect.Slice {
 		return errNotSlice
@@ -286,7 +296,15 @@ func Query(slice interface{}, query string, args ...interface{}) error {
 		return err
 	}
 
-	rows, err := DB.Query(query, args...)
+	var rows *sql.Rows
+	switch q := query.(type) {
+	case string:
+		rows, err = DB.Query(q, args...)
+	case *sql.Stmt:
+		rows, err = q.Query(args...)
+	default:
+		return errBadQueryType
+	}
 	if err != nil {
 		return err
 	}
@@ -319,13 +337,13 @@ func Query(slice interface{}, query string, args ...interface{}) error {
 // for dest's type (Query for slice, QueryRow for struct). If an error occurs
 // during the query, Populate performs the default action of sending an HTTP
 // 500 reply with the error.
-func (g *Gas) Populate(dest interface{}, query string, args ...interface{}) error {
+func (g *Gas) Populate(dest interface{}, query interface{}, args ...interface{}) error {
 	t := reflect.TypeOf(dest)
 	if t.Kind() != reflect.Ptr {
 		return fmt.Errorf(errNotPtr, dest)
 	}
 
-	var f func(interface{}, string, ...interface{}) error
+	var f func(interface{}, interface{}, ...interface{}) error
 
 	switch t.Elem().Kind() {
 	case reflect.Slice:
