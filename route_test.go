@@ -88,7 +88,9 @@ func testGet(t *testing.T, srv *httptest.Server, url, expected string) {
 }
 
 func TestDispatch(t *testing.T) {
-	New().Get("/test1", func(g *Gas) {
+	New().Use(func(g *Gas) {
+		g.SetData("middleware", true)
+	}).Get("/test1", func(g *Gas) {
 		g.Write([]byte("yes"))
 	}).Get("/test2", func(g *Gas) {
 		g.SetData("something", 6)
@@ -101,6 +103,8 @@ func TestDispatch(t *testing.T) {
 		g.Write([]byte(strconv.Itoa(g.Data("test").(int))))
 	}, func(g *Gas) {
 		g.Write([]byte("nope"))
+	}).Get("/test4", func(g *Gas) {
+		g.Write([]byte(strconv.FormatBool(g.Data("middleware").(bool))))
 	})
 
 	srv := httptest.NewServer(http.HandlerFunc(dispatch))
@@ -109,6 +113,7 @@ func TestDispatch(t *testing.T) {
 	testGet(t, srv, "/test1", "yes")
 	testGet(t, srv, "/test2", "test")
 	testGet(t, srv, "/test3", "10")
+	testGet(t, srv, "/test4", "true")
 }
 
 type Bench struct {
