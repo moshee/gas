@@ -2,6 +2,7 @@ package gas
 
 import (
 	//	"database/sql"
+	"os"
 	"reflect"
 	"testing"
 	"time"
@@ -56,7 +57,39 @@ func exec(t *testing.T, query string) {
 	}
 }
 
+func TestDBInit(t *testing.T) {
+	dbname := os.Getenv(envDBName)
+	params := os.Getenv(envDBParams)
+
+	os.Setenv(envDBName, "")
+	if InitDB() == nil {
+		t.Error("Expected 'no dbname set' error")
+	}
+
+	os.Setenv(envDBName, dbname)
+	os.Setenv(envDBParams, "")
+	if InitDB() == nil {
+		t.Error("Expected 'no db params set' error")
+	}
+
+	os.Setenv(envDBParams, params)
+	if err := InitDB(); err != nil {
+		t.Error(err)
+	}
+
+	if DB == nil {
+		t.Error("DB is nil")
+	} else {
+		DB.Close()
+		DB = nil
+	}
+}
+
 func TestDBRegister(t *testing.T) {
+	if err := InitDB(); err != nil {
+		t.Error(err)
+	}
+
 	test := new(Tester)
 	model, err := Register(reflect.TypeOf(test))
 	if err != nil {
@@ -69,9 +102,6 @@ func TestDBRegister(t *testing.T) {
 }
 
 func TestDBQuery(t *testing.T) {
-	InitDB("postgres", "user=postgres dbname=postgres sslmode=disable")
-	defer DB.Close()
-
 	dateFmt := "2006-01-02 15:04:05"
 	t1, _ := time.Parse(dateFmt, "2013-09-24 17:27:00")
 	t2, _ := time.Parse(dateFmt, "2012-12-12 12:12:12")

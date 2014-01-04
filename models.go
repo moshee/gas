@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"reflect"
 	"unicode"
 
@@ -12,20 +13,35 @@ import (
 
 var DB *sql.DB
 
+const (
+	envDBName   = "GAS_DB_NAME"
+	envDBParams = "GAS_DB_PARAMS"
+)
+
 // Opens and initializes database connection.
 //
 // No-op if database connection has already been opened.
-func InitDB(dbname, params string) {
+func InitDB() error {
 	if DB != nil {
-		return
+		return nil
 	}
-	var err error
+
+	var (
+		dbname = os.Getenv(envDBName)
+		params = os.Getenv(envDBParams)
+		err    error
+	)
+
+	if dbname == "" {
+		return fmt.Errorf("InitDB: environment variable %s not set", envDBName)
+	}
+
+	if params == "" {
+		return fmt.Errorf("InitDB: environment variable %s not set", envDBParams)
+	}
+
 	DB, err = sql.Open(dbname, params)
-	if err != nil {
-		panic(err)
-	}
-	DB.SetMaxIdleConns(*flag_db_idle_conns)
-	DB.SetMaxOpenConns(*flag_db_conns)
+	return err
 }
 
 func toSnake(in string) string {
