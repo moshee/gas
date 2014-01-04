@@ -104,7 +104,7 @@ type Gas struct {
 	// populated automatically upon a call to SignIn(), if successful.
 	// Otherwise, it will be populated upon a call to Allowed()—again, if
 	// successful.
-	user User
+	user user
 }
 
 func (g *Gas) Allowed(privileges interface{}) (bool, error) {
