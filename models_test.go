@@ -106,6 +106,8 @@ func TestDBQuery(t *testing.T) {
 		t.Error(err)
 	}
 
+	defer DB.Close()
+
 	dateFmt := "2006-01-02 15:04:05"
 	t1, _ := time.Parse(dateFmt, "2013-09-24 17:27:00")
 	t2, _ := time.Parse(dateFmt, "2012-12-12 12:12:12")
