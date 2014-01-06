@@ -120,6 +120,9 @@ var (
 // routes.
 type Router struct {
 	routes []*route
+
+	// these will be executed in order on every request made to this router
+	middleware []Handler
 }
 
 // Create a new Router that responds to the given subdomains. If no subdomains
@@ -135,6 +138,16 @@ func New(subdomains ...string) (r *Router) {
 		default_router = r
 	}
 	return
+}
+
+func (r *Router) Use(middleware ...Handler) *Router {
+	r.middleware = middleware
+	return r
+}
+
+func (r *Router) UseMore(middleware ...Handler) *Router {
+	r.middleware = append(r.middleware, middleware...)
+	return r
 }
 
 func (r *Router) match(req *http.Request) (map[string]string, []Handler) {
@@ -224,18 +237,25 @@ func dispatch(w http.ResponseWriter, r *http.Request) {
 
 	if values, handlers := router.match(r); handlers != nil {
 		g.args = values
+		for _, handler := range router.middleware {
+			handler(g)
+			if g.responseCode != 0 {
+				goto handled
+			}
+		}
 		for _, handler := range handlers {
 			handler(g)
 
 			// don't continue down the handler chain if a response has been
 			// written
 			if g.responseCode != 0 {
-				break
+				goto handled
 			}
 		}
 	} else {
 		g.Error(404, nil)
 	}
+handled:
 
 	notify(g.Domain(), &HTTPRequest{time.Now().Sub(now), now, g})
 }
