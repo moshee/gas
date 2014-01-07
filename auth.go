@@ -1,7 +1,5 @@
 package gas
 
-// TODO: rework the login logic from the ground up
-
 import (
 	"crypto/rand"
 	"crypto/subtle"
@@ -33,6 +31,11 @@ const (
 	sessionTable = "gas_sessions"
 )
 
+type User interface {
+	Username() string
+	Secrets() (passHash, salt []byte, err error)
+}
+
 // Describes a secure session to be stored temporarily or long-term.
 type Session struct {
 	Id       []byte
@@ -44,112 +47,57 @@ func parseSessid(sessid string) ([]byte, error) {
 	return base64.StdEncoding.DecodeString(sessid)
 }
 
-type SessionCreator interface {
-	CreateSession(id []byte, expires time.Time, username string) error
-}
-
-type SessionReader interface {
-	ReadSession(id []byte) (*Session, error)
-}
-
-type SessionUpdater interface {
-	UpdateSession(id []byte) error
-}
-
-type SessionDeleter interface {
-	DeleteSession(id []byte) error
-}
-
-// A Authenticator is the generalized interface used to auth sessions. Any type
-// that implements this interface can be used to auth sessions.
-type User interface {
-	// Return the user's password hash and salt for password checking.
-	Secrets() (pass, salt []byte, err error)
-	Name() string
-	Allowed(privileges interface{}) bool
-}
-
-type user struct {
-	User
-}
-
-func (u user) CreateSession(id []byte, expires time.Time, username string) error {
-	if s, ok := u.User.(SessionCreator); ok {
-		return s.CreateSession(id, expires, username)
-	}
-
+func createSession(id []byte, expires time.Time, username string) error {
 	_, err := DB.Exec("INSERT INTO "+sessionTable+" VALUES ( $1, $2, $3 )",
 		id, expires, username)
 
 	return err
 }
 
-func (u user) ReadSession(id []byte) (*Session, error) {
-	if s, ok := u.User.(SessionReader); ok {
-		return s.ReadSession(id)
-	}
-
+func readSession(id []byte) (*Session, error) {
 	sess := new(Session)
 	err := Query(sess, "SELECT * FROM "+sessionTable+" WHERE id = $1", id)
 	return sess, err
 }
 
-func (u user) UpdateSession(id []byte) error {
-	if s, ok := u.User.(SessionUpdater); ok {
-		return s.UpdateSession(id)
-	}
-
+func updateSession(id []byte) error {
 	_, err := DB.Exec("UPDATE " + sessionTable + " SET expires = now() + '7d'")
 	return err
 }
 
-func (u user) DeleteSession(id []byte) error {
-	if s, ok := u.User.(SessionDeleter); ok {
-		return s.DeleteSession(id)
-	}
-
+func deleteSession(id []byte) error {
 	_, err := DB.Exec("DELETE FROM "+sessionTable+" WHERE id = $1", id)
 	return err
 }
 
-func NewSession(u User) (id64 string, err error) {
+func NewSession(username string) (id64 string, err error) {
 	sessid := make([]byte, sessidLen)
 	_, err = rand.Read(sessid)
 	if err != nil {
 		return "", err
 	}
 
-	err = user.CreateSession(sessid, time.Now().Add(MaxCookieAge), user.Name())
+	err = createSession(sessid, time.Now().Add(MaxCookieAge), username)
 	id64 = base64.StdEncoding.EncodeToString(sessid)
 	return
 }
 
 var (
-	errCookiesNotEnabled = errors.New("gas: cookies: cookies have not been enabled")
-	errNoUser            = errors.New("gas: no user has been provided")
-	errBadPassword       = errors.New("Invalid username or password.")
-	errCookieExpired     = errors.New("Your session has expired. Please log in again.")
+	errNoUser        = errors.New("gas: no user has been provided")
+	errBadPassword   = errors.New("Invalid username or password.")
+	errCookieExpired = errors.New("Your session has expired. Please log in again.")
 )
 
-func (g *Gas) SetUser(u User) {
-	g.user = user{u}
-}
-
-func (g *Gas) User() User {
-	return g.user.User
-}
-
-// Returns true if the user (identified by the request context) is logged in,
-// false otherwise.
+// Figure out the session from the session cookie in the request, or just
+// return the session if that's been done already.
 func (g *Gas) Session() (*Session, error) {
-	if g.user.User == nil {
-		return errNoUser
+	if g.session != nil {
+		return g.session, nil
 	}
 
-	// error here would be cookie not present (this is not an error)
 	cookie, err := g.Cookie("s")
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if err == http.ErrNoCookie {
 			return nil, nil
 		} else {
 			return nil, err
@@ -163,7 +111,7 @@ func (g *Gas) Session() (*Session, error) {
 		return nil, nil
 	}
 
-	session, err := g.user.ReadSession(id)
+	g.session, err = readSession(id)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -174,26 +122,22 @@ func (g *Gas) Session() (*Session, error) {
 		}
 	}
 
-	if session != nil && time.Now().After(session.Expires) {
+	if g.session != nil && time.Now().After(g.session.Expires) {
 		g.SignOut()
 		return nil, errCookieExpired
 	}
 
-	return session, nil
+	return g.session, nil
 }
 
 // Signs the user in by creating a new session and setting a cookie on the
 // client.
-func (g *Gas) SignIn() error {
-	if g.user.User == nil {
-		return errNoUser
-	}
-
+func (g *Gas) SignIn(u User) error {
 	// already signed in?
 	sess, _ := g.Session()
 	if sess != nil {
 		cookie, err := g.Cookie("s")
-		if err != nil {
+		if err != nil && err != http.ErrNoCookie {
 			return err
 		}
 
@@ -202,23 +146,22 @@ func (g *Gas) SignIn() error {
 			return err
 		}
 
-		if err := g.user.UpdateSession(id); err != nil {
+		if err := updateSession(id); err != nil {
 			return err
 		}
 
 		return nil
 	}
 
-	good, err := VerifyPass(user, g.FormValue("pass"))
-
-	if err != nil && err != sql.ErrNoRows {
+	pass, salt, err := u.Secrets()
+	if err != nil {
 		return err
 	}
-	if !good {
+	if !VerifyHash([]byte(g.FormValue("pass")), pass, salt) {
 		return errBadPassword
 	}
 
-	sessid, err := NewSession(cookies.auth, user)
+	sessid, err := NewSession(u.Username())
 	if err != nil {
 		return err
 	}
@@ -251,10 +194,9 @@ func (g *Gas) SignOut() error {
 		return err
 	}
 
-	if g.user.User == nil {
-		return errNoUser
+	if err := deleteSession(id); err != nil {
+		return err
 	}
-	g.user.DeleteSession(id)
 
 	g.SetCookie(&http.Cookie{
 		Name:     "s",
@@ -279,18 +221,9 @@ func Hash(pass []byte, salt []byte) []byte {
 }
 
 // Create a new hash and random salt from the supplied password.
-func NewHash(pass []byte) (hash, salt []byte, err error) {
+func NewHash(pass []byte) (hash, salt []byte) {
 	salt = make([]byte, 16)
 	rand.Read(salt)
 	hash = Hash([]byte(pass), salt)
 	return
-}
-
-func VerifyPass(u User, pass string) (bool, error) {
-	storedPass, storedSalt, err := u.Secrets()
-	if err != nil {
-		return false, err
-	}
-
-	return VerifyHash([]byte(pass), storedPass, storedSalt), nil
 }

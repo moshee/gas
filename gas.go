@@ -100,18 +100,7 @@ type Gas struct {
 
 	*RerouteInfo
 
-	// user is the user object used for user authorization, etc. It will be
-	// populated automatically upon a call to SignIn(), if successful.
-	// Otherwise, it will be populated upon a call to Allowed()—again, if
-	// successful.
-	user user
-}
-
-func (g *Gas) Allowed(privileges interface{}) (bool, error) {
-	if g.User() == nil {
-		return false, errNotLoggedIn
-	}
-	return g.user.Allowed(privileges), nil
+	session *Session
 }
 
 func (g *Gas) Arg(key string) string {
@@ -245,26 +234,6 @@ func (g *Gas) Domain() string {
 	return strings.SplitN(g.Host, ":", 1)[0]
 }
 
-func do_subcommands() bool {
-	// TODO subcommands
-	args := flag.Args()
-	if len(args) > 0 {
-		switch args[0] {
-		case "makeuser":
-			if len(args) != 3 {
-				// TODO: error types
-				Log(Fatal, "Wrong number of arguments for %s: %d for %d", args[0], len(args), 3)
-			}
-			if err := NewUser(args[1], args[2]); err != nil {
-				Log(Fatal, "%s: %v", args[0], err)
-			}
-			Log(Notice, "User '%s' created.", args[1])
-			return true
-		}
-	}
-	return false
-}
-
 func handle_signals(c chan os.Signal) {
 	for {
 		if f := signal_funcs[<-c]; f != nil {
@@ -273,10 +242,23 @@ func handle_signals(c chan os.Signal) {
 	}
 }
 
-// Run the provided subcommand, if any. If no subcommand given, start the
-// server running on the given port. This should be the last call in the main()
-// function.
-func Ignition() {
+func initThings() {
+	if DB != nil {
+		_, err := DB.Exec("CREATE TABLE IF NOT EXISTS " + sessionTable + " ( id bytea, expires timestamptz, username text )")
+		if err != nil {
+			LogFatal("%v", err)
+		}
+	}
+
+	if initFuncs != nil {
+		for _, f := range initFuncs {
+			f()
+		}
+	}
+}
+
+// Start the server. Should be called after everything else is set up.
+func Ignition(srv *http.Server) {
 	if Verbosity > None {
 		logChan = make(chan logMessage, 10)
 		logNeedRotate = make(chan time.Time)
@@ -287,44 +269,35 @@ func Ignition() {
 		go pollLogfile(5*time.Second, logNeedRotate)
 	}
 
-	now := time.Now().Format("2006-01-02 15:04")
+	initThings()
 
-	LogNotice("=== Session: %s =========================", now)
-
-	if DB != nil {
-		defer DB.Close()
-	}
-
-	if do_subcommands() {
-		return
-	}
-
-	if initFuncs != nil {
-		for _, f := range initFuncs {
-			f()
+	defer func() {
+		if DB != nil {
+			DB.Close()
 		}
-	}
+	}()
 
 	go handle_signals(sigchan)
 
 	Templates = parse_templates("./templates")
 
-	// TODO: move all this first-run shit to a new thing
-	/*
-		if UsersTable != "" {
-			if _, err := DB.Exec("CREATE TABLE IF NOT EXISTS " + UsersTable + " ( id serial PRIMARY KEY, name text, pass bytea, salt bytea )"); err != nil {
-				Log(Fatal, "Couldn't create users table")
-			}
-		}
-	*/
 	port_string := ":" + strconv.Itoa(*flag_port)
 
-	srv := &http.Server{
-		Addr:         port_string,
-		Handler:      http.HandlerFunc(dispatch),
-		ReadTimeout:  60 * time.Second,
-		WriteTimeout: 10 * time.Second,
+	if srv == nil {
+		srv = &http.Server{
+			Addr:         port_string,
+			Handler:      http.HandlerFunc(dispatch),
+			ReadTimeout:  60 * time.Second,
+			WriteTimeout: 10 * time.Second,
+		}
+	} else {
+		srv.Addr = port_string
+		srv.Handler = http.HandlerFunc(dispatch)
 	}
+
+	now := time.Now().Format("2006-01-02 15:04")
+	LogNotice("=== Session: %s =========================", now)
+
 	Log(Fatal, "%v", srv.ListenAndServe())
 }
 
