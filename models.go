@@ -11,7 +11,10 @@ import (
 	_ "github.com/lib/pq"
 )
 
-var DB *sql.DB
+var (
+	DB        *sql.DB
+	stmtCache = make(map[string]*sql.Stmt)
+)
 
 const (
 	envDBName   = "GAS_DB_NAME"
@@ -42,6 +45,18 @@ func InitDB() error {
 
 	DB, err = sql.Open(dbname, params)
 	return err
+}
+
+func getStmt(query string) (*sql.Stmt, error) {
+	if stmt, ok := stmtCache[query]; ok {
+		return stmt, nil
+	}
+	stmt, err := DB.Prepare(query)
+	if err != nil {
+		return nil, err
+	}
+	stmtCache[query] = stmt
+	return stmt, nil
 }
 
 func toSnake(in string) string {
@@ -265,7 +280,7 @@ func Register(t reflect.Type) (*model, error) {
 }
 
 // Query into a single row or a slice.
-func Query(dest, query interface{}, args ...interface{}) error {
+func Query(dest interface{}, query string, args ...interface{}) error {
 	t := reflect.TypeOf(dest)
 	model, err := Register(t)
 	if err != nil {
@@ -277,15 +292,12 @@ func Query(dest, query interface{}, args ...interface{}) error {
 	// actually contains a *sql.Rows as a field, but one that is unexported. So
 	// we just have to get a Rows and only scan one row. (assuming it returns
 	// just one row). This is basically what (*sql.Row).Scan does.
-	var rows *sql.Rows
-	switch q := query.(type) {
-	case string:
-		rows, err = DB.Query(q, args...)
-	case *sql.Stmt:
-		rows, err = q.Query(args...)
-	default:
-		return errBadQueryType
+	stmt, err := getStmt(query)
+	if err != nil {
+		return err
 	}
+
+	rows, err := stmt.Query(args...)
 	if err != nil {
 		return err
 	}

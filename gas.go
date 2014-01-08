@@ -275,6 +275,9 @@ func Ignition(srv *http.Server) {
 		if DB != nil {
 			DB.Close()
 		}
+		for _, stmt := range stmtCache {
+			stmt.Close()
+		}
 	}()
 
 	go handle_signals(sigchan)
@@ -310,15 +313,4 @@ func Init(funcs ...func()) {
 		initFuncs = make([]func(), 0, len(funcs))
 	}
 	initFuncs = append(initFuncs, funcs...)
-}
-
-// TODO: this
-type Subcommand struct {
-	Name string
-	Do   func() error
-}
-
-// Unimplemented
-func RegisterSubcommand(commands ...*Subcommand) {
-
 }
