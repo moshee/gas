@@ -90,10 +90,7 @@ func TestAuth(t *testing.T) {
 
 	New().Get("/", func(g *Gas) {
 		//println("get /")
-		if sess, err := g.Session(); sess == nil {
-			if err != nil {
-				t.Error(err)
-			}
+		if sess, _ := g.Session(); sess == nil {
 			fmt.Fprint(g, "no")
 		} else {
 			//println("calling byUsername")
@@ -120,6 +117,12 @@ func TestAuth(t *testing.T) {
 		} else {
 			fmt.Fprint(g, "yes")
 		}
+	}).Get("/logout", func(g *Gas) {
+		if err := g.SignOut(); err != nil {
+			fmt.Fprint(g, "no")
+		} else {
+			fmt.Fprint(g, "yes")
+		}
 	})
 
 	srv := httptest.NewServer(http.HandlerFunc(dispatch))
@@ -136,7 +139,10 @@ func TestAuth(t *testing.T) {
 
 	tester.try("/", "no", nil)
 	tester.try("/login", "yes", form)
+	tester.try("/login", "yes", form)
 	tester.try("/", "1", nil)
+	tester.try("/logout", "yes", nil)
+	tester.try("/", "no", nil)
 	tester.try("/login", "no", form2)
 }
 

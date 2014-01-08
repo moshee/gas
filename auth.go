@@ -194,7 +194,7 @@ func (g *Gas) SignOut() error {
 		return err
 	}
 
-	if err := deleteSession(id); err != nil {
+	if err := deleteSession(id); err != nil && err != sql.ErrNoRows {
 		return err
 	}
 
