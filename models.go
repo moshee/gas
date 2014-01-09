@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"os"
 	"reflect"
 	"unicode"
 
@@ -16,11 +15,6 @@ var (
 	stmtCache = make(map[string]*sql.Stmt)
 )
 
-const (
-	envDBName   = "GAS_DB_NAME"
-	envDBParams = "GAS_DB_PARAMS"
-)
-
 // Opens and initializes database connection.
 //
 // No-op if database connection has already been opened.
@@ -29,21 +23,8 @@ func InitDB() error {
 		return nil
 	}
 
-	var (
-		dbname = os.Getenv(envDBName)
-		params = os.Getenv(envDBParams)
-		err    error
-	)
-
-	if dbname == "" {
-		return fmt.Errorf("InitDB: environment variable %s not set", envDBName)
-	}
-
-	if params == "" {
-		return fmt.Errorf("InitDB: environment variable %s not set", envDBParams)
-	}
-
-	DB, err = sql.Open(dbname, params)
+	var err error
+	DB, err = sql.Open(Env.DB_NAME, Env.DB_PARAMS)
 	return err
 }
 

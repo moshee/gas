@@ -2,7 +2,7 @@ package gas
 
 import (
 	//	"database/sql"
-	"os"
+
 	"reflect"
 	"testing"
 	"time"
@@ -58,23 +58,6 @@ func exec(t *testing.T, query string) {
 }
 
 func TestDBInit(t *testing.T) {
-	DB.Close()
-	DB = nil
-	dbname := os.Getenv(envDBName)
-	params := os.Getenv(envDBParams)
-
-	os.Setenv(envDBName, "")
-	if InitDB() == nil {
-		t.Errorf("Expected 'no dbname set' error (value: '%s')", os.Getenv(envDBName))
-	}
-
-	os.Setenv(envDBName, dbname)
-	os.Setenv(envDBParams, "")
-	if InitDB() == nil {
-		t.Errorf("Expected 'no db params set' error (value: '%s'", os.Getenv(envDBParams))
-	}
-
-	os.Setenv(envDBParams, params)
 	if err := InitDB(); err != nil {
 		t.Error(err)
 	}

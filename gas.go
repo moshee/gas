@@ -22,13 +22,9 @@ import (
 
 var (
 	//flag_syncdb = flag.Bool("gas.syncdb", false, "Create database tables from registered models")
-	flag_verbosity     = flag.Int("gas.loglevel", 2, "How much information to log (0=none, 1=fatal, 2=warning, 3=notice, 4=debug)")
-	flag_port          = flag.Int("gas.port", 80, "Port to listen on")
-	flag_log           = flag.String("gas.log", "", "File to log to (log disabled for empty path)")
-	flag_daemon        = flag.Bool("gas.daemon", false, "Internal use")
-	flag_db_idle_conns = flag.Int("gas.db.conns.idle", 10, "Maximum number of idle DB connections")
-	flag_db_conns      = flag.Int("gas.db.conns.open", 4, "Maximum number of open DB connections")
-	sigchan            = make(chan os.Signal, 2)
+	flag_verbosity = flag.Int("gas.loglevel", 2, "How much information to log (0=none, 1=fatal, 2=warning, 3=notice, 4=debug)")
+	flag_log       = flag.String("gas.log", "", "File to log to (log disabled for empty path)")
+	sigchan        = make(chan os.Signal, 2)
 )
 
 var (
@@ -284,17 +280,17 @@ func Ignition(srv *http.Server) {
 
 	Templates = parse_templates("./templates")
 
-	port_string := ":" + strconv.Itoa(*flag_port)
+	port := ":" + strconv.Itoa(Env.PORT)
 
 	if srv == nil {
 		srv = &http.Server{
-			Addr:         port_string,
+			Addr:         port,
 			Handler:      http.HandlerFunc(dispatch),
 			ReadTimeout:  60 * time.Second,
 			WriteTimeout: 10 * time.Second,
 		}
 	} else {
-		srv.Addr = port_string
+		srv.Addr = port
 		srv.Handler = http.HandlerFunc(dispatch)
 	}
 
