@@ -5,7 +5,9 @@ package gas
 // belong in or are too small for their own files
 
 import (
+	"bytes"
 	"encoding/base64"
+	"encoding/gob"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -56,22 +58,6 @@ func init() {
 	signal.Notify(sigchan)
 }
 
-// A RerouteInfo object stores the data passed on from a page rerouting its
-// requester to a different handler. If the RerouteInfo field of *Gas is not
-// nil, that means a reroute was requested. The reroute cookies will always be
-// removed at the beginning of every request, if they exist.
-type RerouteInfo struct {
-	From string
-	Val  interface{}
-	raw  []byte
-}
-
-// Recover the original data left behind on the call to Reroute
-func (self *RerouteInfo) Recover(val interface{}) error {
-	self.Val = val
-	return json.Unmarshal(self.raw, self)
-}
-
 type Error struct {
 	Path  string
 	Err   error
@@ -94,7 +80,7 @@ type Gas struct {
 	// has not be written yet, responseCode will be 0.
 	responseCode int
 
-	*RerouteInfo
+	rerouteInfo []byte
 
 	session *Session
 }
@@ -158,21 +144,19 @@ func (g *Gas) Redirect(path string, code int) {
 }
 
 // Perform a redirect, but first place a cookie on the client containing an
-// arbitrary JSON blob encoded from the data passed in. The recieving handler
+// encoding/gob blob encoded from the data passed in. The recieving handler
 // should then check for the RerouteInfo on the request, and handle the special
 // case if necessary.
 func (g *Gas) Reroute(path string, code int, data interface{}) {
 	var cookieVal string
 
 	if data != nil {
-		reroute := &RerouteInfo{
-			From: g.URL.Path,
-			Val:  data,
-		}
+		buf := new(bytes.Buffer)
+		enc := gob.NewEncoder(buf)
+		err := enc.Encode(data)
 
-		val, err := json.Marshal(reroute)
 		if err == nil {
-			cookieVal = base64.StdEncoding.EncodeToString(val)
+			cookieVal = base64.StdEncoding.EncodeToString(buf.Bytes())
 		} else {
 			Log(Warning, "gas: reroute: %v", err)
 		}
@@ -187,6 +171,16 @@ func (g *Gas) Reroute(path string, code int, data interface{}) {
 	})
 
 	g.Redirect(path, code)
+}
+
+// Recover the reroute info stored in the cookie and decode it into dest. If
+// there is no reroute cookie, an error is returned.
+func (g *Gas) Recover(dest interface{}) error {
+	if g.rerouteInfo == nil {
+		return errors.New("gas: reroute: no reroute cookie found")
+	}
+	dec := gob.NewDecoder(bytes.NewReader(g.rerouteInfo))
+	return dec.Decode(dest)
 }
 
 // Serve up an error page from /templates/errors. Templates in that directory

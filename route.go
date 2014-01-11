@@ -223,7 +223,7 @@ func dispatch(w http.ResponseWriter, r *http.Request) {
 		blob, err := base64.StdEncoding.DecodeString(reroute.Value)
 
 		if err == nil {
-			g.RerouteInfo = &RerouteInfo{raw: blob}
+			g.rerouteInfo = blob
 		} else {
 			Log(Warning, "gas: dispatch reroute: %v", err)
 		}

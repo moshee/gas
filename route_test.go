@@ -1,6 +1,7 @@
 package gas
 
 import (
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -69,7 +70,7 @@ func TestMatch(t *testing.T) {
 
 func testGet(t *testing.T, srv *httptest.Server, url, expected string) {
 	url = srv.URL + url
-	resp, err := http.Get(url)
+	resp, err := testclient.Get(url)
 	if err != nil {
 		t.Errorf("testGet %s: %v", url, err)
 		return
@@ -87,8 +88,10 @@ func testGet(t *testing.T, srv *httptest.Server, url, expected string) {
 	}
 }
 
+var r = New()
+
 func TestDispatch(t *testing.T) {
-	New().Use(func(g *Gas) {
+	r.Use(func(g *Gas) {
 		g.SetData("middleware", true)
 	}).Get("/test1", func(g *Gas) {
 		g.Write([]byte("yes"))
@@ -114,6 +117,22 @@ func TestDispatch(t *testing.T) {
 	testGet(t, srv, "/test2", "test")
 	testGet(t, srv, "/test3", "10")
 	testGet(t, srv, "/test4", "true")
+}
+
+func TestReroute(t *testing.T) {
+	r.Get("/reroute1", func(g *Gas) {
+		g.Reroute("/reroute2", 303, map[string]string{"test": "ok"})
+	}).Get("/reroute2", func(g *Gas) {
+		var m map[string]string
+		if err := g.Recover(&m); err != nil {
+			t.Fatal(err)
+		}
+		fmt.Fprint(g, m["test"])
+	})
+
+	srv := httptest.NewServer(http.HandlerFunc(dispatch))
+	defer srv.Close()
+	testGet(t, srv, "/reroute1", "ok")
 }
 
 type Bench struct {
