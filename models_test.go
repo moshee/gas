@@ -1,8 +1,6 @@
 package gas
 
 import (
-	//	"database/sql"
-
 	"reflect"
 	"testing"
 	"time"
@@ -36,6 +34,25 @@ type Tester5 struct {
 	ThirdColumn string `sql:"test"`
 }
 
+type A struct {
+	Id   int
+	Data int
+	Bs   []*B
+}
+
+type B struct {
+	Id   int
+	AId  int `sql:"a_id"`
+	Data float64
+	Cs   []C
+}
+
+type C struct {
+	Id   int
+	BId  int `sql:"b_id"`
+	Data string
+}
+
 func match(t *testing.T, test *Tester, a string, b int, c time.Time) {
 	ts := test.SomeSortOfDateTime
 	if test.TextField != a ||
@@ -53,7 +70,32 @@ func match(t *testing.T, test *Tester, a string, b int, c time.Time) {
 func exec(t *testing.T, query string) {
 	_, err := DB.Exec(query)
 	if err != nil {
+		t.Logf("in query: %s", query)
 		t.Fatal(err)
+	}
+}
+
+func assertEqual(t *testing.T, a, b interface{}) {
+	if !reflect.DeepEqual(a, b) {
+		t.Fatalf("want %v != got %v", b, a)
+	}
+}
+
+func TestCamelToSnake(t *testing.T) {
+	try := func(camel, snake string) {
+		if got := toSnake(camel); got != snake {
+			t.Errorf("expected '%s', got '%s'", snake, got)
+		}
+	}
+	for _, test := range []struct{ camel, snake string }{
+		{"A", "a"},
+		{"AId", "aid"},
+		{"MacBookPro", "mac_book_pro"},
+		{"ABC", "abc"},
+		{"OneTwoThreeFour", "one_two_three_four"},
+		{"", ""},
+	} {
+		try(test.camel, test.snake)
 	}
 }
 
@@ -142,4 +184,39 @@ func TestDBQuery(t *testing.T) {
 	if test4.FirstColumn != "first" || test4.ThirdColumn != "third" {
 		t.Error("fail: missing fields in target struct")
 	}
+
+	// joins
+	exec(t, `CREATE TEMP TABLE a (
+		id   serial PRIMARY KEY,
+		data int    NOT NULL
+	)`)
+	exec(t, `CREATE TEMP TABLE b (
+		id   serial PRIMARY KEY,
+		a_id int    NOT NULL REFERENCES a,
+		data float8 NOT NULL
+	)`)
+	exec(t, `CREATE TEMP TABLE c (
+		id   serial PRIMARY KEY,
+		b_id int    NOT NULL REFERENCES b,
+		data text   NOT NULL
+	)`)
+	exec(t, `INSERT INTO a(data) VALUES (1),(3),(5)`)
+	exec(t, `INSERT INTO b(a_id, data) SELECT id, (data^2)::float8 as data FROM a`)
+	exec(t, `INSERT INTO b(a_id, data) SELECT id, (data^3)::float8 as data FROM a`)
+	exec(t, `INSERT INTO b(a_id, data) SELECT id, (data^4)::float8 as data FROM a`)
+	exec(t, `INSERT INTO c(b_id,data) SELECT id, data::text FROM b`)
+
+	a := make([]*A, 0, 3)
+	if err := QueryJoin(&a, "SELECT * FROM a LEFT JOIN b ON a.id = b.a_id LEFT JOIN c ON c.b_id = b.id ORDER BY a.id, b.id, c.id"); err != nil {
+		t.Fatal(err)
+	}
+
+	assertEqual(t, len(a), 3)
+	assertEqual(t, a[0].Data, 1)
+	//fmt.Printf("%#v\n", a[0].Bs)
+	assertEqual(t, len(a[0].Bs), 3)
+	assertEqual(t, a[1].Bs[2].Data, 81.0)
+	//fmt.Printf("%#v\n", a[0].Bs[0])
+	assertEqual(t, len(a[0].Bs[0].Cs), 1)
+	assertEqual(t, a[2].Bs[2].Cs[0].Data, "625")
 }

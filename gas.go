@@ -234,7 +234,7 @@ func handle_signals(c chan os.Signal) {
 
 func initThings() {
 	if DB != nil {
-		_, err := DB.Exec("CREATE TABLE IF NOT EXISTS " + sessionTable + " ( id bytea, expires timestamptz, username text )")
+		_, err := DB.Exec("CREATE TABLE IF NOT EXISTS " + Env.SESS_TABLE + " ( id bytea, expires timestamptz, username text )")
 		if err != nil {
 			LogFatal("%v", err)
 		}

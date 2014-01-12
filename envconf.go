@@ -29,7 +29,7 @@ var Env struct {
 	// client. A value of 13 (the default) is a good number to start with, and
 	// should be increased as hardware gets faster (see
 	// http://www.tarsnap.com/scrypt.html for more info)
-	HASH_COST int `default:"13"`
+	HASH_COST uint `default:"13"`
 }
 
 // The prefix append to the field name in Env, e.g. Env.DB_NAME would be
@@ -75,22 +75,28 @@ func envconf() error {
 }
 
 func stringValue(s string, typ reflect.Type) (reflect.Value, error) {
+	var (
+		n   interface{}
+		err error
+	)
+
 	switch kind := typ.Kind(); kind {
 	case reflect.String:
 		return reflect.ValueOf(s), nil
 	case reflect.Int:
-		n, err := strconv.Atoi(s)
-		if err != nil {
-			return reflect.Zero(typ), err
-		}
-		return reflect.ValueOf(n), nil
+		n, err = strconv.Atoi(s)
+	case reflect.Uint:
+		var a uint64
+		a, err = strconv.ParseUint(s, 10, 32)
+		n = uint(a)
 	case reflect.Float64:
-		n, err := strconv.ParseFloat(s, 64)
-		if err != nil {
-			return reflect.Zero(typ), err
-		}
-		return reflect.ValueOf(n), nil
+		n, err = strconv.ParseFloat(s, 64)
 	default:
 		return reflect.Zero(typ), fmt.Errorf("unhandled parameter type %v", kind)
 	}
+
+	if err != nil {
+		return reflect.Zero(typ), err
+	}
+	return reflect.ValueOf(n), nil
 }

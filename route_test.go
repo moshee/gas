@@ -88,10 +88,8 @@ func testGet(t *testing.T, srv *httptest.Server, url, expected string) {
 	}
 }
 
-var r = New()
-
 func TestDispatch(t *testing.T) {
-	r.Use(func(g *Gas) {
+	New().Use(func(g *Gas) {
 		g.SetData("middleware", true)
 	}).Get("/test1", func(g *Gas) {
 		g.Write([]byte("yes"))
@@ -120,7 +118,7 @@ func TestDispatch(t *testing.T) {
 }
 
 func TestReroute(t *testing.T) {
-	r.Get("/reroute1", func(g *Gas) {
+	New().Get("/reroute1", func(g *Gas) {
 		g.Reroute("/reroute2", 303, map[string]string{"test": "ok"})
 	}).Get("/reroute2", func(g *Gas) {
 		var m map[string]string
