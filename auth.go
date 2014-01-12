@@ -16,19 +16,6 @@ var (
 	// MaxCookieAge is the maximum age sent in the  Set-Cookie header when a
 	// user logs in.
 	MaxCookieAge = 7 * 24 * time.Hour
-
-	// HashCost is the cost passed into the scrypt hash function. It is
-	// represented as the power of 2 (aka HashCost=9 means 2<<9 iterations).
-	// It should be set as desired in the main() function of the importing
-	// client. A value of 13 (the default) is a good number to start with,
-	// and should be increased as hardware gets faster (see
-	// http://www.tarsnap.com/scrypt.html for more info)
-	HashCost uint = 13
-)
-
-const (
-	sessidLen    = 64
-	sessionTable = "gas_sessions"
 )
 
 type User interface {
@@ -48,7 +35,7 @@ func parseSessid(sessid string) ([]byte, error) {
 }
 
 func createSession(id []byte, expires time.Time, username string) error {
-	_, err := DB.Exec("INSERT INTO "+sessionTable+" VALUES ( $1, $2, $3 )",
+	_, err := DB.Exec("INSERT INTO "+Env.SESS_TABLE+" VALUES ( $1, $2, $3 )",
 		id, expires, username)
 
 	return err
@@ -56,22 +43,22 @@ func createSession(id []byte, expires time.Time, username string) error {
 
 func readSession(id []byte) (*Session, error) {
 	sess := new(Session)
-	err := Query(sess, "SELECT * FROM "+sessionTable+" WHERE id = $1", id)
+	err := Query(sess, "SELECT * FROM "+Env.SESS_TABLE+" WHERE id = $1", id)
 	return sess, err
 }
 
 func updateSession(id []byte) error {
-	_, err := DB.Exec("UPDATE " + sessionTable + " SET expires = now() + '7d'")
+	_, err := DB.Exec("UPDATE " + Env.SESS_TABLE + " SET expires = now() + '7d'")
 	return err
 }
 
 func deleteSession(id []byte) error {
-	_, err := DB.Exec("DELETE FROM "+sessionTable+" WHERE id = $1", id)
+	_, err := DB.Exec("DELETE FROM "+Env.SESS_TABLE+" WHERE id = $1", id)
 	return err
 }
 
 func NewSession(username string) (id64 string, err error) {
-	sessid := make([]byte, sessidLen)
+	sessid := make([]byte, Env.SESSID_LEN)
 	_, err = rand.Read(sessid)
 	if err != nil {
 		return "", err
@@ -216,7 +203,7 @@ func VerifyHash(supplied, expected, salt []byte) bool {
 
 // Hash the given passphrase using the salt provided.
 func Hash(pass []byte, salt []byte) []byte {
-	hash, _ := scrypt.Key(pass, salt, 2<<HashCost, 8, 1, 32)
+	hash, _ := scrypt.Key(pass, salt, 2<<Env.HASH_COST, 8, 1, 32)
 	return hash
 }
 
