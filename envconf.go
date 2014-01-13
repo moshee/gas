@@ -5,6 +5,7 @@ import (
 	"os"
 	"reflect"
 	"strconv"
+	"time"
 )
 
 // The configuration parameters specified as environment variables. They may be
@@ -13,6 +14,9 @@ import (
 var Env struct {
 	DB_NAME   string `envconf:"required"`
 	DB_PARAMS string `envconf:"required"`
+
+	// Maximum age of a cookie before it goes stale
+	MAX_COOKIE_AGE time.Duration `default:"168h"`
 
 	// The name of the database table in which sessions will be stored
 	SESS_TABLE string `default:"gas_sessions"`
@@ -58,47 +62,55 @@ func EnvConf(conf interface{}, prefix string) error {
 			if field.Tag.Get("envconf") == "required" {
 				return fmt.Errorf("%s: required parameter not specified", name)
 			} else if def := field.Tag.Get("default"); def != "" {
-				val, err := stringValue(def, field.Type)
+				val, err := stringValue(def, fieldVal.Interface())
 				if err != nil {
 					return fmt.Errorf("%s: %v", name, err)
 				}
-				fieldVal.Set(val)
+				fieldVal.Set(reflect.ValueOf(val))
 			}
 		} else {
-			val, err := stringValue(v, field.Type)
+			val, err := stringValue(v, fieldVal.Interface())
 			if err != nil {
 				return fmt.Errorf("%s: %v", name, err)
 			}
-			fieldVal.Set(val)
+			fieldVal.Set(reflect.ValueOf(val))
 		}
 	}
 
 	return nil
 }
 
-func stringValue(s string, typ reflect.Type) (reflect.Value, error) {
+func stringValue(s string, fieldVal interface{}) (interface{}, error) {
 	var (
 		n   interface{}
 		err error
 	)
 
-	switch kind := typ.Kind(); kind {
-	case reflect.String:
-		return reflect.ValueOf(s), nil
-	case reflect.Int:
+	switch fieldVal.(type) {
+	case bool:
+		n, err = strconv.ParseBool(s)
+	case string:
+		return s, nil
+	case int:
 		n, err = strconv.Atoi(s)
-	case reflect.Uint:
+	case int64:
+		n, err = strconv.ParseInt(s, 10, 64)
+	case uint:
 		var a uint64
 		a, err = strconv.ParseUint(s, 10, 32)
 		n = uint(a)
-	case reflect.Float64:
+	case uint64:
+		n, err = strconv.ParseUint(s, 10, 64)
+	case float64:
 		n, err = strconv.ParseFloat(s, 64)
+	case time.Duration:
+		n, err = time.ParseDuration(s)
 	default:
-		return reflect.Zero(typ), fmt.Errorf("unhandled parameter type %v", kind)
+		return nil, fmt.Errorf("unhandled parameter type %T", fieldVal)
 	}
 
 	if err != nil {
-		return reflect.Zero(typ), err
+		return nil, err
 	}
-	return reflect.ValueOf(n), nil
+	return n, nil
 }

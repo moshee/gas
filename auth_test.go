@@ -46,10 +46,8 @@ func (u *MyUser) byUsername(name string) (*MyUser, error) {
 	if name == "" {
 		return nil, errors.New("byUsername: empty name")
 	}
-	//println("byUsername", name)
 	u = new(MyUser)
 	err := Query(u, "SELECT * FROM gas_test_users WHERE name = $1", name)
-	//println("query")
 	return u, err
 }
 
@@ -70,7 +68,6 @@ func TestAuth(t *testing.T) {
 	testPass := "hello"
 	hash, salt := NewHash([]byte(testPass))
 
-	//println("tx")
 	tx, err := DB.Begin()
 	if err != nil {
 		t.Fatal(err)
@@ -86,33 +83,24 @@ func TestAuth(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	//println("/tx")
 
 	New().Get("/", func(g *Gas) {
-		//println("get /")
 		if sess, _ := g.Session(); sess == nil {
 			fmt.Fprint(g, "no")
 		} else {
-			//println("calling byUsername")
-			//println("sess", sess)
 			if u, err := new(MyUser).byUsername(sess.Username); err != nil {
-				//println("letting them know yes")
 				fmt.Fprint(g, "no")
 			} else {
-				//println("letting them know no")
 				fmt.Fprintf(g, "%d", u.Id)
 			}
 		}
 	}).Post("/login", func(g *Gas) {
-		//println("post /login")
 		u, err := new(MyUser).byUsername(g.FormValue("username"))
 		if err != nil {
-			//println("login: %v", err)
 			fmt.Fprint(g, "no")
 			return
 		}
 		if err = g.SignIn(u); err != nil {
-			//println("login: %v", err)
 			fmt.Fprint(g, "no")
 		} else {
 			fmt.Fprint(g, "yes")
@@ -154,13 +142,11 @@ type authTester struct {
 
 func (t *authTester) try(url, expected string, form uri.Values) {
 	url = t.srv.URL + url
-	//println("try", url)
 
 	var (
 		resp *http.Response
 		err  error
 	)
-	//println("req")
 	if form == nil {
 		resp, err = t.client.Get(url)
 	} else {
@@ -170,7 +156,6 @@ func (t *authTester) try(url, expected string, form uri.Values) {
 		t.Error(err)
 		return
 	}
-	//println("/req")
 
 	defer resp.Body.Close()
 	body, err := ioutil.ReadAll(resp.Body)

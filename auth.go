@@ -12,12 +12,6 @@ import (
 	"code.google.com/p/go.crypto/scrypt"
 )
 
-var (
-	// MaxCookieAge is the maximum age sent in the  Set-Cookie header when a
-	// user logs in.
-	MaxCookieAge = 7 * 24 * time.Hour
-)
-
 type User interface {
 	Username() string
 	Secrets() (passHash, salt []byte, err error)
@@ -64,7 +58,7 @@ func NewSession(username string) (id64 string, err error) {
 		return "", err
 	}
 
-	err = createSession(sessid, time.Now().Add(MaxCookieAge), username)
+	err = createSession(sessid, time.Now().Add(Env.MAX_COOKIE_AGE), username)
 	id64 = base64.StdEncoding.EncodeToString(sessid)
 	return
 }
@@ -160,7 +154,7 @@ func (g *Gas) SignIn(u User) error {
 		Name:     "s",
 		Value:    sessid,
 		Path:     "/",
-		MaxAge:   int(MaxCookieAge / time.Second),
+		MaxAge:   int(Env.MAX_COOKIE_AGE / time.Second),
 		HttpOnly: true,
 	}
 
