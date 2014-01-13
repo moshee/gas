@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -189,9 +190,7 @@ func (r *Router) Delete(pattern string, handlers ...Handler) *Router {
 func dispatch(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		if nuke := recover(); nuke != nil {
-			g := &Gas{w: w, Request: r}
-
-			notify(g.Domain(), &Panic{nuke, time.Now(), g})
+			LogWarning("panic: %s %s %s%s: %v", r.RemoteAddr, r.Method, r.Host, r.URL.Path, nuke)
 
 			var (
 				err error
@@ -200,6 +199,7 @@ func dispatch(w http.ResponseWriter, r *http.Request) {
 			if err, ok = nuke.(error); !ok {
 				err = fmt.Errorf("%v", nuke)
 			}
+			g := &Gas{w: w, Request: r}
 			g.Error(500, err)
 		}
 	}()
@@ -256,6 +256,20 @@ func dispatch(w http.ResponseWriter, r *http.Request) {
 		g.Error(404, nil)
 	}
 handled:
+	LogNotice("[%s] %s %7s (%d) %s%s", fmtDuration(time.Now().Sub(now)),
+		strings.Split(g.RemoteAddr, ":")[0], g.Method, g.responseCode, g.Host,
+		g.URL.Path)
+}
 
-	notify(g.Domain(), &HTTPRequest{time.Now().Sub(now), now, g})
+func fmtDuration(d time.Duration) string {
+	switch {
+	case d <= time.Microsecond:
+		return fmt.Sprintf("% 4dns", d)
+	case d <= time.Millisecond:
+		return fmt.Sprintf("% 4dµs", d/time.Microsecond)
+	case d <= time.Second:
+		return fmt.Sprintf("% 4dms", d/time.Millisecond)
+	default:
+		return fmt.Sprintf("% 6s", d.String())
+	}
 }

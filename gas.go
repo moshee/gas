@@ -34,6 +34,8 @@ var (
 )
 
 func init() {
+	signal.Notify(sigchan)
+
 	// runtime.GOMAXPROCS(runtime.NumCPU())
 	flag.Parse()
 	Verbosity = LogLevel(*flag_verbosity)
@@ -55,7 +57,9 @@ func init() {
 	}
 	logger = log.New(logFile, "", log.LstdFlags)
 
-	signal.Notify(sigchan)
+	if err := EnvConf(&Env, EnvPrefix); err != nil {
+		LogFatal("envconf: %v", err)
+	}
 }
 
 type Error struct {
@@ -249,16 +253,6 @@ func initThings() {
 
 // Start the server. Should be called after everything else is set up.
 func Ignition(srv *http.Server) {
-	if Verbosity > None {
-		logChan = make(chan logMessage, 10)
-		logNeedRotate = make(chan time.Time)
-
-		go logLines(logChan, logNeedRotate)
-
-		// XXX: arbitrarily chosen time duration, tweak as needed!
-		go pollLogfile(5*time.Second, logNeedRotate)
-	}
-
 	initThings()
 
 	defer func() {

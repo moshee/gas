@@ -1,14 +1,8 @@
 package gas
 
 import (
-	"compress/gzip"
-	"fmt"
-	"io"
 	"log"
 	"os"
-	"path/filepath"
-	"runtime/debug"
-	"time"
 )
 
 type LogLevel int
@@ -22,13 +16,13 @@ const (
 )
 
 var (
-	Verbosity          LogLevel = Fatal
-	logger             *log.Logger
-	logFile            *os.File
-	logFilePath        string
-	logChan            chan logMessage
-	logRotateThreshold int64 = 5 * 1024 * 1024 // 5MB
-	logNeedRotate      chan time.Time
+	Verbosity   LogLevel = Fatal
+	logger      *log.Logger
+	logFile     *os.File
+	logFilePath string
+	//logChan                  = make(chan logMessage, 10)
+	//logRotateThreshold int64 = 5 * 1024 * 1024 // 5MB
+	//logNeedRotate            = make(chan time.Time)
 )
 
 func (l LogLevel) String() string {
@@ -41,6 +35,7 @@ func (l LogLevel) String() string {
 	return ""
 }
 
+/*
 // Consume messages and log them, while also rotating logs as needed
 func logLines(messages <-chan logMessage, needRotate <-chan time.Time) {
 	for {
@@ -118,11 +113,15 @@ type logMessage struct {
 	format string
 	args   []interface{}
 }
+*/
 
 func Log(level LogLevel, format string, args ...interface{}) {
-	if Verbosity >= level {
-		logChan <- logMessage{level, format, args}
-	}
+	/*
+		if Verbosity >= level {
+			logChan <- logMessage{level, format, args}
+		}
+	*/
+	logger.Printf(level.String()+format, args...)
 }
 
 func LogDebug(format string, args ...interface{}) {

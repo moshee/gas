@@ -15,8 +15,9 @@ var Env struct {
 	DB_NAME   string `envconf:"required"`
 	DB_PARAMS string `envconf:"required"`
 
-	// Maximum age of a cookie before it goes stale
-	MAX_COOKIE_AGE time.Duration `default:"168h"`
+	// Maximum age of a cookie before it goes stale. Syntax specified as in
+	// time.ParseDuration (maximum unit is hours 'h')
+	MAX_COOKIE_AGE time.Duration `default:"186h"`
 
 	// The name of the database table in which sessions will be stored
 	SESS_TABLE string `default:"gas_sessions"`
@@ -39,12 +40,6 @@ var Env struct {
 // The prefix append to the field name in Env, e.g. Env.DB_NAME would be
 // populated by the environment variable GAS_DB_NAME.
 const EnvPrefix = "GAS_"
-
-func init() {
-	if err := EnvConf(&Env, EnvPrefix); err != nil {
-		LogFatal("envconf: %v", err)
-	}
-}
 
 // Pass in a pointer to a struct that looks like Env and the fields will be
 // filled in with the corresponding environment variables.
