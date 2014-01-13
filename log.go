@@ -116,12 +116,10 @@ type logMessage struct {
 */
 
 func Log(level LogLevel, format string, args ...interface{}) {
-	/*
-		if Verbosity >= level {
-			logChan <- logMessage{level, format, args}
-		}
-	*/
-	logger.Printf(level.String()+format, args...)
+	if Verbosity >= level {
+		//logChan <- logMessage{level, format, args}
+		logger.Printf(level.String()+format, args...)
+	}
 }
 
 func LogDebug(format string, args ...interface{}) {

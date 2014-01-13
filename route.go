@@ -256,7 +256,7 @@ func dispatch(w http.ResponseWriter, r *http.Request) {
 		g.Error(404, nil)
 	}
 handled:
-	LogNotice("[%s] %s %7s (%d) %s%s", fmtDuration(time.Now().Sub(now)),
+	LogNotice("[%s] %15s %7s (%d) %s%s", fmtDuration(time.Now().Sub(now)),
 		strings.Split(g.RemoteAddr, ":")[0], g.Method, g.responseCode, g.Host,
 		g.URL.Path)
 }

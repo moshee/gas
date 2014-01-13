@@ -42,7 +42,10 @@ var Env struct {
 const EnvPrefix = "GAS_"
 
 // Pass in a pointer to a struct that looks like Env and the fields will be
-// filled in with the corresponding environment variables.
+// filled in with the corresponding environment variables. Struct tag meanings:
+//
+//     envconf:"required" // an error will be returned if this var isn't given
+//     default:"<default value>" // provide a default if this var isn't given
 func EnvConf(conf interface{}, prefix string) error {
 	val := reflect.ValueOf(conf).Elem()
 	typ := val.Type()
