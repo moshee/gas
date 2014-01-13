@@ -37,18 +37,20 @@ var Env struct {
 const EnvPrefix = "GAS_"
 
 func init() {
-	if err := envconf(); err != nil {
+	if err := EnvConf(&Env, EnvPrefix); err != nil {
 		LogFatal("envconf: %v", err)
 	}
 }
 
-func envconf() error {
-	val := reflect.ValueOf(&Env).Elem()
+// Pass in a pointer to a struct that looks like Env and the fields will be
+// filled in with the corresponding environment variables.
+func EnvConf(conf interface{}, prefix string) error {
+	val := reflect.ValueOf(conf).Elem()
 	typ := val.Type()
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
 		fieldVal := val.Field(i)
-		name := EnvPrefix + field.Name
+		name := prefix + field.Name
 		v := os.Getenv(name)
 		LogDebug("[envconf] %s = '%s'", name, v)
 
