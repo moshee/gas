@@ -4,7 +4,11 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
+	"text/tabwriter"
 	"time"
 )
 
@@ -191,6 +195,12 @@ func dispatch(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		if nuke := recover(); nuke != nil {
 			LogWarning("panic: %s %s %s%s: %v", r.RemoteAddr, r.Method, r.Host, r.URL.Path, nuke)
+			// here we skip 3 because we know the last 3 calls are guaranteed:
+			//     0 runtime.Callers
+			//     1 gas.printStack
+			//     2 gas.func·NNN (this func)
+			// that way we can get right to the source of it with less noise
+			printStack(3, 10)
 
 			var (
 				err error
@@ -272,4 +282,23 @@ func fmtDuration(d time.Duration) string {
 	default:
 		return fmt.Sprintf("% 6s", d.String())
 	}
+}
+
+func printStack(skip, count int) {
+	pcs := make([]uintptr, count)
+	s := runtime.Callers(skip, pcs)
+	pcs = pcs[:s]
+	tw := tabwriter.NewWriter(os.Stderr, 4, 8, 1, ' ', 0)
+
+	for i, pc := range pcs {
+		f := runtime.FuncForPC(pc)
+		path, line := f.FileLine(pc)
+		name := f.Name()
+		parent, file := filepath.Split(path)
+		parent, oneUp := filepath.Split(filepath.Clean(parent))
+		file = filepath.Join(oneUp, file)
+
+		fmt.Fprintf(tw, "%2d  %s\t@ 0x%x\t%s:%d\n", i, name, pc, file, line)
+	}
+	tw.Flush()
 }
