@@ -5,28 +5,30 @@ import (
 	"os"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
 )
 
-// The configuration parameters specified as environment variables. They may be
-// overridden during runtime, but note that some are only used on startup
-// (after init() and before Ignition).
+// The configuration parameters specified as environment variables. Field names
+// in CamelCase correspond to the environment variables in SHOUTING_SNAKE_CASE.
+// They may be overridden during runtime, but note that some are only used on
+// startup (after init() and before Ignition).
 var Env struct {
-	DB_NAME   string `envconf:"required"`
-	DB_PARAMS string `envconf:"required"`
+	DbName   string `envconf:"required"`
+	DbParams string `envconf:"required"`
 
 	// Maximum age of a cookie before it goes stale. Syntax specified as in
 	// time.ParseDuration (maximum unit is hours 'h')
-	MAX_COOKIE_AGE time.Duration `default:"186h"`
+	MaxCookieAge time.Duration `default:"186h"`
 
 	// The name of the database table in which sessions will be stored
-	SESS_TABLE string `default:"gas_sessions"`
+	SessTable string `default:"gas_sessions"`
 
 	// The length of the session ID in bytes
-	SESSID_LEN int `default:"64"`
+	SessidLen int `default:"64"`
 
 	// The port for the server to listen on
-	PORT int `default:"80"`
+	Port int `default:"80"`
 
 	// HASH_COST is the cost passed into the scrypt hash function. It is
 	// represented as the power of 2 (aka HASH_COST=9 means 2<<9 iterations).
@@ -34,10 +36,10 @@ var Env struct {
 	// client. A value of 13 (the default) is a good number to start with, and
 	// should be increased as hardware gets faster (see
 	// http://www.tarsnap.com/scrypt.html for more info)
-	HASH_COST uint `default:"13"`
+	HashCost uint `default:"13"`
 }
 
-// The prefix append to the field name in Env, e.g. Env.DB_NAME would be
+// The prefix append to the field name in Env, e.g. Env.DBName would be
 // populated by the environment variable GAS_DB_NAME.
 const EnvPrefix = "GAS_"
 
@@ -52,7 +54,7 @@ func EnvConf(conf interface{}, prefix string) error {
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
 		fieldVal := val.Field(i)
-		name := prefix + field.Name
+		name := prefix + strings.ToUpper(toSnake(field.Name))
 		v := os.Getenv(name)
 		LogDebug("[envconf] %s = '%s'", name, v)
 

@@ -32,20 +32,20 @@ func TestEnvConf(t *testing.T) {
 		t.Errorf("Expected no envconf error, got %v", err)
 	}
 
-	if Env.PORT != 80 {
-		t.Errorf("Expected default value PORT = 80, got %d", Env.PORT)
+	if Env.Port != 80 {
+		t.Errorf("Expected default value PORT = 80, got %d", Env.Port)
 	}
 	os.Setenv("GAS_PORT", env["GAS_PORT"])
 
 	conf := struct {
-		BOOL     bool
-		STRING   string
-		INT      int
-		INT64    int64
-		UINT     uint
-		UINT64   uint64
-		FLOAT64  float64
-		DURATION time.Duration
+		Bool     bool
+		String   string
+		Int      int
+		Int64    int64
+		Uint     uint
+		Uint64   uint64
+		Float64  float64
+		Duration time.Duration
 	}{}
 
 	env = map[string]string{
@@ -83,12 +83,12 @@ func TestEnvConf(t *testing.T) {
 		}
 	}
 
-	assertEqual(conf.BOOL, true)
-	assertEqual(conf.STRING, "testing")
-	assertEqual(conf.INT, 9553325)
-	assertEqual(conf.INT64, int64(-3453466699214))
-	assertEqual(conf.UINT, uint(22299929))
-	assertEqual(conf.UINT64, uint64(9325324234324324))
-	assertEqual(conf.FLOAT64, 3.14159265358979323846264833)
-	assertEqual(conf.DURATION, time.Hour+2*time.Second+3*time.Millisecond+4*time.Microsecond+5*time.Nanosecond)
+	assertEqual(conf.Bool, true)
+	assertEqual(conf.String, "testing")
+	assertEqual(conf.Int, 9553325)
+	assertEqual(conf.Int64, int64(-3453466699214))
+	assertEqual(conf.Uint, uint(22299929))
+	assertEqual(conf.Uint64, uint64(9325324234324324))
+	assertEqual(conf.Float64, 3.14159265358979323846264833)
+	assertEqual(conf.Duration, time.Hour+2*time.Second+3*time.Millisecond+4*time.Microsecond+5*time.Nanosecond)
 }

@@ -58,7 +58,7 @@ func InitDB() error {
 	}
 
 	var err error
-	DB, err = sql.Open(Env.DB_NAME, Env.DB_PARAMS)
+	DB, err = sql.Open(Env.DbName, Env.DbParams)
 	return err
 }
 

@@ -29,7 +29,7 @@ func parseSessid(sessid string) ([]byte, error) {
 }
 
 func createSession(id []byte, expires time.Time, username string) error {
-	_, err := DB.Exec("INSERT INTO "+Env.SESS_TABLE+" VALUES ( $1, $2, $3 )",
+	_, err := DB.Exec("INSERT INTO "+Env.SessTable+" VALUES ( $1, $2, $3 )",
 		id, expires, username)
 
 	return err
@@ -37,28 +37,28 @@ func createSession(id []byte, expires time.Time, username string) error {
 
 func readSession(id []byte) (*Session, error) {
 	sess := new(Session)
-	err := Query(sess, "SELECT * FROM "+Env.SESS_TABLE+" WHERE id = $1", id)
+	err := Query(sess, "SELECT * FROM "+Env.SessTable+" WHERE id = $1", id)
 	return sess, err
 }
 
 func updateSession(id []byte) error {
-	_, err := DB.Exec("UPDATE " + Env.SESS_TABLE + " SET expires = now() + '7d'")
+	_, err := DB.Exec("UPDATE " + Env.SessTable + " SET expires = now() + '7d'")
 	return err
 }
 
 func deleteSession(id []byte) error {
-	_, err := DB.Exec("DELETE FROM "+Env.SESS_TABLE+" WHERE id = $1", id)
+	_, err := DB.Exec("DELETE FROM "+Env.SessTable+" WHERE id = $1", id)
 	return err
 }
 
 func NewSession(username string) (id64 string, err error) {
-	sessid := make([]byte, Env.SESSID_LEN)
+	sessid := make([]byte, Env.SessidLen)
 	_, err = rand.Read(sessid)
 	if err != nil {
 		return "", err
 	}
 
-	err = createSession(sessid, time.Now().Add(Env.MAX_COOKIE_AGE), username)
+	err = createSession(sessid, time.Now().Add(Env.MaxCookieAge), username)
 	id64 = base64.StdEncoding.EncodeToString(sessid)
 	return
 }
@@ -154,7 +154,7 @@ func (g *Gas) SignIn(u User) error {
 		Name:     "s",
 		Value:    sessid,
 		Path:     "/",
-		MaxAge:   int(Env.MAX_COOKIE_AGE / time.Second),
+		MaxAge:   int(Env.MaxCookieAge / time.Second),
 		HttpOnly: true,
 	}
 
@@ -197,7 +197,7 @@ func VerifyHash(supplied, expected, salt []byte) bool {
 
 // Hash the given passphrase using the salt provided.
 func Hash(pass []byte, salt []byte) []byte {
-	hash, _ := scrypt.Key(pass, salt, 2<<Env.HASH_COST, 8, 1, 32)
+	hash, _ := scrypt.Key(pass, salt, 2<<Env.HashCost, 8, 1, 32)
 	return hash
 }
 

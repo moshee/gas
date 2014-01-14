@@ -36,7 +36,6 @@ var (
 func init() {
 	signal.Notify(sigchan)
 
-	// runtime.GOMAXPROCS(runtime.NumCPU())
 	flag.Parse()
 	Verbosity = LogLevel(*flag_verbosity)
 
@@ -238,7 +237,7 @@ func handle_signals(c chan os.Signal) {
 
 func initThings() {
 	if DB != nil {
-		_, err := DB.Exec("CREATE TABLE IF NOT EXISTS " + Env.SESS_TABLE + " ( id bytea, expires timestamptz, username text )")
+		_, err := DB.Exec("CREATE TABLE IF NOT EXISTS " + Env.SessTable + " ( id bytea, expires timestamptz, username text )")
 		if err != nil {
 			LogFatal("%v", err)
 		}
@@ -268,7 +267,7 @@ func Ignition(srv *http.Server) {
 
 	Templates = parse_templates("./templates")
 
-	port := ":" + strconv.Itoa(Env.PORT)
+	port := ":" + strconv.Itoa(Env.Port)
 
 	if srv == nil {
 		srv = &http.Server{
