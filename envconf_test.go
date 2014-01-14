@@ -8,6 +8,11 @@ import (
 )
 
 func TestEnvConf(t *testing.T) {
+	assertEqual := func(a, b interface{}) {
+		if !reflect.DeepEqual(a, b) {
+			t.Errorf("Expected %v (%[1]T) != got %v (%[2]T)", b, a)
+		}
+	}
 	// save env vars
 	env := make(map[string]string)
 	for _, key := range []string{"DB_NAME", "DB_PARAMS", "PORT"} {
@@ -21,6 +26,7 @@ func TestEnvConf(t *testing.T) {
 	}
 
 	os.Setenv("GAS_DB_NAME", env["GAS_DB_NAME"])
+	os.Setenv("GAS_COOKIE_AUTH_KEY", "asdfasdf")
 	os.Setenv("GAS_PORT", "abc")
 	if err := EnvConf(&Env, EnvPrefix); err == nil {
 		t.Error("Expected strconv error in envconf, got nothing")
@@ -28,14 +34,16 @@ func TestEnvConf(t *testing.T) {
 
 	os.Setenv("GAS_DB_PARAMS", env["GAS_DB_PARAMS"])
 	os.Setenv("GAS_PORT", "")
+	os.Setenv("GAS_COOKIE_AUTH_KEY", "")
 	if err := EnvConf(&Env, EnvPrefix); err != nil {
 		t.Errorf("Expected no envconf error, got %v", err)
 	}
 
-	if Env.Port != 80 {
-		t.Errorf("Expected default value PORT = 80, got %d", Env.Port)
+	assertEqual(Env.Port, 80)
+	assertEqual(Env.CookieAuthKey, []byte(""))
+	for key, val := range env {
+		os.Setenv(EnvPrefix+key, val)
 	}
-	os.Setenv("GAS_PORT", env["GAS_PORT"])
 
 	conf := struct {
 		Bool     bool
@@ -75,12 +83,6 @@ func TestEnvConf(t *testing.T) {
 
 	if err := EnvConf(&conf, prefix); err != nil {
 		t.Errorf("Expected no error, got %v", err)
-	}
-
-	assertEqual := func(a, b interface{}) {
-		if !reflect.DeepEqual(a, b) {
-			t.Errorf("Expected %v (%[1]T) != got %v (%[2]T)", b, a)
-		}
 	}
 
 	assertEqual(conf.Bool, true)

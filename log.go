@@ -120,6 +120,9 @@ func Log(level LogLevel, format string, args ...interface{}) {
 		//logChan <- logMessage{level, format, args}
 		logger.Printf(level.String()+format, args...)
 	}
+	if level == Fatal {
+		os.Exit(-1)
+	}
 }
 
 func LogDebug(format string, args ...interface{}) {

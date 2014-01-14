@@ -1,8 +1,8 @@
 package gas
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
-	"crypto/subtle"
 	"database/sql"
 	"encoding/base64"
 	"errors"
@@ -10,7 +10,19 @@ import (
 	"time"
 
 	"code.google.com/p/go.crypto/scrypt"
+	"code.google.com/p/go.crypto/sha3"
 )
+
+var (
+	errNoUser        = errors.New("gas: no user has been provided")
+	errBadPassword   = errors.New("Invalid username or password.")
+	errCookieExpired = errors.New("Your session has expired. Please log in again.")
+	errBadMac        = errors.New("HMAC digests don't match")
+	hmacKeys         [][]byte
+)
+
+// keccak256
+const macLength = 32
 
 type User interface {
 	Username() string
@@ -24,8 +36,47 @@ type Session struct {
 	Username string
 }
 
-func parseSessid(sessid string) ([]byte, error) {
-	return base64.StdEncoding.DecodeString(sessid)
+// Create a new random session ID, with HMAC digest if that's enabled. Returns just the sessid, and base64(sessid || MAC)
+func NewSession(username string) (sessid, encoded []byte) {
+	sessid = make([]byte, Env.SessidLen)
+	rand.Read(sessid)
+
+	sum := sessid
+
+	if hmacKeys != nil && len(hmacKeys) > 0 {
+		sum = hmacSum(sessid, hmacKeys[0], sum)
+	}
+
+	encoded = make([]byte, base64.StdEncoding.EncodedLen(len(sum)))
+	base64.StdEncoding.Encode(encoded, sum)
+	return
+}
+
+// Decode a session cookie's value back into a []byte, checking if the HMAC
+// digest is valid if that's enabled.
+func CheckSession(sessid string) ([]byte, error) {
+	p, err := base64.StdEncoding.DecodeString(sessid)
+	if err != nil {
+		return nil, err
+	}
+	if len(p) > Env.SessidLen && hmacKeys != nil && len(hmacKeys) > 0 {
+		var (
+			pos = len(p) - macLength
+			id  = p[:pos]
+			sum = p[pos:]
+		)
+
+		for _, key := range hmacKeys {
+			s := hmacSum(id, key, nil)
+			if hmac.Equal(s, sum) {
+				return id, nil
+			}
+		}
+
+		return nil, errBadMac
+	} else {
+		return p, nil
+	}
 }
 
 func createSession(id []byte, expires time.Time, username string) error {
@@ -51,24 +102,6 @@ func deleteSession(id []byte) error {
 	return err
 }
 
-func NewSession(username string) (id64 string, err error) {
-	sessid := make([]byte, Env.SessidLen)
-	_, err = rand.Read(sessid)
-	if err != nil {
-		return "", err
-	}
-
-	err = createSession(sessid, time.Now().Add(Env.MaxCookieAge), username)
-	id64 = base64.StdEncoding.EncodeToString(sessid)
-	return
-}
-
-var (
-	errNoUser        = errors.New("gas: no user has been provided")
-	errBadPassword   = errors.New("Invalid username or password.")
-	errCookieExpired = errors.New("Your session has expired. Please log in again.")
-)
-
 // Figure out the session from the session cookie in the request, or just
 // return the session if that's been done already.
 func (g *Gas) Session() (*Session, error) {
@@ -85,11 +118,11 @@ func (g *Gas) Session() (*Session, error) {
 		}
 	}
 
-	id, err := parseSessid(cookie.Value)
+	id, err := CheckSession(cookie.Value)
 	if err != nil {
 		// this means invalid session
 		g.SignOut()
-		return nil, nil
+		return nil, err
 	}
 
 	g.session, err = readSession(id)
@@ -122,7 +155,7 @@ func (g *Gas) SignIn(u User) error {
 			return err
 		}
 
-		id, err := parseSessid(cookie.Value)
+		id, err := CheckSession(cookie.Value)
 		if err != nil {
 			return err
 		}
@@ -142,7 +175,9 @@ func (g *Gas) SignIn(u User) error {
 		return errBadPassword
 	}
 
-	sessid, err := NewSession(u.Username())
+	username := u.Username()
+	sessid, encoded := NewSession(username)
+	err = createSession(sessid, time.Now().Add(Env.MaxCookieAge), username)
 	if err != nil {
 		return err
 	}
@@ -152,7 +187,7 @@ func (g *Gas) SignIn(u User) error {
 	// include the cookie in the header (the browser restricts this).
 	cookie := &http.Cookie{
 		Name:     "s",
-		Value:    sessid,
+		Value:    string(encoded),
 		Path:     "/",
 		MaxAge:   int(Env.MaxCookieAge / time.Second),
 		HttpOnly: true,
@@ -170,7 +205,7 @@ func (g *Gas) SignOut() error {
 		return err
 	}
 
-	id, err := parseSessid(cookie.Value)
+	id, err := CheckSession(cookie.Value)
 	if err != nil {
 		return err
 	}
@@ -192,7 +227,7 @@ func (g *Gas) SignOut() error {
 // Check if the supplied passphrase matches the expected hash using the salt.
 func VerifyHash(supplied, expected, salt []byte) bool {
 	hashed := Hash(supplied, salt)
-	return subtle.ConstantTimeCompare(expected, hashed) == 1
+	return hmac.Equal(expected, hashed)
 }
 
 // Hash the given passphrase using the salt provided.
@@ -207,4 +242,10 @@ func NewHash(pass []byte) (hash, salt []byte) {
 	rand.Read(salt)
 	hash = Hash([]byte(pass), salt)
 	return
+}
+
+func hmacSum(plaintext, key, b []byte) []byte {
+	mac := hmac.New(sha3.NewKeccak256, key)
+	mac.Write(plaintext)
+	return mac.Sum(b)
 }

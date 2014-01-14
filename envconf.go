@@ -21,6 +21,12 @@ var Env struct {
 	// time.ParseDuration (maximum unit is hours 'h')
 	MaxCookieAge time.Duration `default:"186h"`
 
+	// The key used in HMAC signing of cookies. If it's blank, no signing will
+	// be used. Multiple os.PathListSeparator-separated keys can be used to
+	// allow for key rotation; the keys will be tried in order from left to
+	// right.
+	CookieAuthKey []byte
+
 	// The name of the database table in which sessions will be stored
 	SessTable string `default:"gas_sessions"`
 
@@ -65,11 +71,11 @@ func EnvConf(conf interface{}, prefix string) error {
 				if err := stringValue(def, fieldVal.Addr().Interface()); err != nil {
 					return err
 				}
+				continue
 			}
-		} else {
-			if err := stringValue(v, fieldVal.Addr().Interface()); err != nil {
-				return err
-			}
+		}
+		if err := stringValue(v, fieldVal.Addr().Interface()); err != nil {
+			return err
 		}
 	}
 
@@ -84,6 +90,8 @@ func stringValue(s string, fieldVal interface{}) error {
 		*v, err = strconv.ParseBool(s)
 	case *string:
 		*v = s
+	case *[]byte:
+		*v = []byte(s)
 	case *int:
 		*v, err = strconv.Atoi(s)
 	case *int64:

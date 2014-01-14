@@ -1,6 +1,7 @@
 package gas
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -94,6 +95,16 @@ func TestAuth(t *testing.T) {
 				fmt.Fprintf(g, "%d", u.Id)
 			}
 		}
+	}).Get("/hmac", func(g *Gas) {
+		_, err := g.Session()
+		if err != nil {
+			fmt.Fprint(g, "no")
+			if err != errBadMac {
+				t.Fatalf("Expected hmac error, got %v", err)
+			}
+		} else {
+			fmt.Fprint(g, "yes")
+		}
 	}).Post("/login", func(g *Gas) {
 		u, err := new(MyUser).byUsername(g.FormValue("username"))
 		if err != nil {
@@ -116,6 +127,8 @@ func TestAuth(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(dispatch))
 	defer srv.Close()
 
+	hmacKeys = nil
+
 	tester := &authTester{srv, testclient, t}
 	form := make(uri.Values)
 	form.Set("username", "moshee")
@@ -132,6 +145,24 @@ func TestAuth(t *testing.T) {
 	tester.try("/logout", "yes", nil)
 	tester.try("/", "no", nil)
 	tester.try("/login", "no", form2)
+
+	hmacKeys = [][]byte{[]byte("super secret key")}
+
+	tester.try("/login", "yes", form)
+	tester.try("/hmac", "yes", nil)
+	url, _ := uri.Parse(srv.URL)
+	cookies := tester.client.Jar.Cookies(url)
+	if len(cookies) == 0 {
+		t.Fatal("no cookies in the jar")
+	}
+	b, err := base64.StdEncoding.DecodeString(cookies[0].Value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b[0] ^= 'z'
+	cookies[0].Value = base64.StdEncoding.EncodeToString(b)
+	tester.client.Jar.SetCookies(url, cookies)
+	tester.try("/hmac", "no", nil)
 }
 
 type authTester struct {

@@ -13,7 +13,7 @@ var signal_funcs = map[os.Signal]func(){
 	syscall.SIGHUP: func() {
 		ts := parse_templates(template_dir)
 		Templates = ts
-		Log(Notice, "Templates reloaded.")
+		LogNotice("Templates reloaded.")
 	},
 }
 

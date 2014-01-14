@@ -59,6 +59,10 @@ func init() {
 	if err := EnvConf(&Env, EnvPrefix); err != nil {
 		LogFatal("envconf: %v", err)
 	}
+
+	if len(Env.CookieAuthKey) > 0 {
+		hmacKeys = bytes.Split(Env.CookieAuthKey, []byte{byte(os.PathListSeparator)})
+	}
 }
 
 type Error struct {
