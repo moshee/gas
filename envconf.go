@@ -60,55 +60,45 @@ func EnvConf(conf interface{}, prefix string) error {
 			if field.Tag.Get("envconf") == "required" {
 				return fmt.Errorf("%s: required parameter not specified", name)
 			} else if def := field.Tag.Get("default"); def != "" {
-				val, err := stringValue(def, fieldVal.Interface())
-				if err != nil {
-					return fmt.Errorf("%s: %v", name, err)
+				if err := stringValue(def, fieldVal.Addr().Interface()); err != nil {
+					return err
 				}
-				fieldVal.Set(reflect.ValueOf(val))
 			}
 		} else {
-			val, err := stringValue(v, fieldVal.Interface())
-			if err != nil {
-				return fmt.Errorf("%s: %v", name, err)
+			if err := stringValue(v, fieldVal.Addr().Interface()); err != nil {
+				return err
 			}
-			fieldVal.Set(reflect.ValueOf(val))
 		}
 	}
 
 	return nil
 }
 
-func stringValue(s string, fieldVal interface{}) (interface{}, error) {
-	var (
-		n   interface{}
-		err error
-	)
+func stringValue(s string, fieldVal interface{}) error {
+	var err error
 
-	switch fieldVal.(type) {
-	case bool:
-		n, err = strconv.ParseBool(s)
-	case string:
-		return s, nil
-	case int:
-		n, err = strconv.Atoi(s)
-	case int64:
-		n, err = strconv.ParseInt(s, 10, 64)
-	case uint:
+	switch v := fieldVal.(type) {
+	case *bool:
+		*v, err = strconv.ParseBool(s)
+	case *string:
+		*v = s
+	case *int:
+		*v, err = strconv.Atoi(s)
+	case *int64:
+		*v, err = strconv.ParseInt(s, 10, 64)
+	case *uint:
 		var a uint64
 		a, err = strconv.ParseUint(s, 10, 32)
-		n = uint(a)
-	case uint64:
-		n, err = strconv.ParseUint(s, 10, 64)
-	case float64:
-		n, err = strconv.ParseFloat(s, 64)
-	case time.Duration:
-		n, err = time.ParseDuration(s)
+		*v = uint(a)
+	case *uint64:
+		*v, err = strconv.ParseUint(s, 10, 64)
+	case *float64:
+		*v, err = strconv.ParseFloat(s, 64)
+	case *time.Duration:
+		*v, err = time.ParseDuration(s)
 	default:
-		return nil, fmt.Errorf("unhandled parameter type %T", fieldVal)
+		return fmt.Errorf("unhandled parameter type %T", fieldVal)
 	}
 
-	if err != nil {
-		return nil, err
-	}
-	return n, nil
+	return err
 }

@@ -5,9 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"time"
 	"unicode"
 
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
 )
 
 var (
@@ -21,6 +22,32 @@ var (
 	errNoRows           = errors.New("gas: QueryRow: no rows returned")
 	errBadQueryType     = errors.New("gas: query: query must be either of type string or *sql.Stmt")
 )
+
+// NullUint64 is a sql.Scanner for unsigned ints.
+type NullUint64 struct {
+	Uint64 uint64
+	Valid  bool
+}
+
+func (n *NullUint64) Scan(src interface{}) error {
+	if src == nil {
+		n.Uint64, n.Valid = 0, false
+		return nil
+	}
+	n.Valid = true
+	s := asString(src)
+	return stringValue(s, &n.Uint64)
+}
+
+func asString(src interface{}) string {
+	switch v := src.(type) {
+	case string:
+		return v
+	case []byte:
+		return string(v)
+	}
+	return fmt.Sprintf("%v", src)
+}
 
 // Opens and initializes database connection.
 //
@@ -400,19 +427,31 @@ func queryJoinStruct(t reflect.Type, dest interface{}, rows *sql.Rows) error {
 
 // Recursively populate dest with the data from rows, using t as a template to
 // generate a flat slice of destinations to rows.Scan into. After that, the
-// values from the flat slice will be recursively copied into dest, appending
-// new values to dest, its children's children, etc. as needed.
+// values from the flat slice will be recursively copied into dest by doing a
+// linear search through the slice, matching against the current row's primary
+// key, appending new values to dest, its children's children, etc. as needed.
+//
+// TODO: use iterative or something instead of like 4 different recursive
+// functions
 func queryJoinSlice(t reflect.Type, dest interface{}, rows *sql.Rows) error {
-	dests, idIndexes := getDests(t)
+	dests, idIndexes, err := getDests(t)
+	if err != nil {
+		return err
+	}
+
 	columns, err := rows.Columns()
 	if err != nil {
-		return fmt.Errorf("queryJoinSlice: %v", err)
+		return err
 	}
 
 	dv := reflect.ValueOf(dest)
 
+	//dump(dests)
 	for rows.Next() {
-		rows.Scan(dests...)
+		if err = rows.Scan(dests...); err != nil {
+			return err
+		}
+		//dump(dests)
 		err = insertIntoTree(dv, dests, idIndexes, columns)
 		if err != nil {
 			return err
@@ -425,58 +464,107 @@ func queryJoinSlice(t reflect.Type, dest interface{}, rows *sql.Rows) error {
 	return nil
 }
 
+/*
+func dump(s []interface{}) {
+	for _, i := range s {
+		v := reflect.Indirect(reflect.ValueOf(i))
+		if v.IsValid() {
+			fmt.Printf("%v\t", reflect.Indirect(reflect.ValueOf(i)).Interface())
+		} else {
+			fmt.Printf("%v\t", v)
+		}
+	}
+	fmt.Println()
+}
+*/
+
 // Recursively flatten the types of each element in the tree to be used for
 // scan destinations. Implementation: cache this so it doesn't have to be
 // done every time? Use the *sql.Stmt as a map key?
-func getDests(t reflect.Type) (dests []interface{}, idIndexes []int) {
+func getDests(t reflect.Type) (dests []interface{}, idIndexes []int, err error) {
 	//fmt.Printf("getDests(%v)\n", t)
 	i := 0
 	dests = make([]interface{}, 0)
 	idIndexes = make([]int, 0)
-	var f func(t reflect.Type)
+	var f func(t reflect.Type) error
 
-	f = func(t reflect.Type) {
+	f = func(t reflect.Type) error {
 		//fmt.Printf("getDests.f(%v)\n", t)
 		for j := 0; j < t.NumField(); j++ {
 			field := t.Field(j)
 			fieldType := field.Type
-
-			switch fieldType.Kind() {
-			case reflect.Slice:
-				// a: []*T
-				// b: []T
-				if fieldType.Elem().Kind() == reflect.Ptr {
-					fieldType = fieldType.Elem()
-				}
-				// a: *T
-				// b: []T
-				fallthrough
-			case reflect.Ptr:
+			if fieldType.Kind() == reflect.Ptr {
 				// a: *T
 				// b: []T
 				elem := fieldType.Elem()
 				if elem.Kind() == reflect.Struct {
 					// a: T
 					// b: T
-					f(elem)
-					break
-				}
-				fallthrough
-			default:
-				if field.Name == "Id" {
-					switch fieldType.Kind() {
-					case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-						reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-						idIndexes = append(idIndexes, i)
+					if err := f(elem); err != nil {
+						return err
 					}
+					continue
 				}
-				dests = append(dests, reflect.New(fieldType).Interface())
 			}
+
+			var nullable interface{}
+
+			switch fieldType.Kind() {
+			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+				if field.Name == "Id" {
+					idIndexes = append(idIndexes, i)
+				}
+				nullable = new(sql.NullInt64)
+
+			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+				nullable = new(NullUint64)
+
+			case reflect.String:
+				nullable = new(sql.NullString)
+
+			case reflect.Slice:
+				switch elem := fieldType.Elem(); elem.Kind() {
+				case reflect.Ptr:
+					elem = elem.Elem()
+					fallthrough
+
+				case reflect.Struct:
+					if err := f(elem); err != nil {
+						return err
+					}
+					continue
+
+				default:
+					// uhh...just don't do something stupid like []*int or whatever
+					nullable = reflect.MakeSlice(fieldType, 0, 0)
+				}
+
+			case reflect.Bool:
+				nullable = new(sql.NullBool)
+
+			case reflect.Float32, reflect.Float64:
+				nullable = new(sql.NullFloat64)
+
+			default:
+				nullable = reflect.Zero(fieldType).Interface()
+				switch nullable.(type) {
+				case time.Time:
+					nullable = new(pq.NullTime)
+				default:
+					return fmt.Errorf("can't make a nullable %v", field.Type)
+				}
+			}
+
+			//fmt.Printf("appending %#v (%[1]T)\n", nullable)
+			dests = append(dests, nullable)
+			//dests = append(dests, reflect.New(fieldType).Interface())
 			i++
 		}
+
+		return nil
 	}
 
-	f(t)
+	err = f(t)
 	return
 }
 
@@ -491,14 +579,34 @@ func getDests(t reflect.Type) (dests []interface{}, idIndexes []int) {
 // - (maybe) there is only one slice per object
 func insertIntoTree(dest reflect.Value, data []interface{}, idIndexes []int, columns []string) error {
 	//fmt.Printf("insertIntoTree(%v, %v, %v, %v)\n", dest, data, idIndexes, columns)
+
+	// len 0 indicates we've reached the bottom of the tree
 	if len(idIndexes) == 0 {
 		return nil
 	}
+
 	dest = reflect.Indirect(dest)
 
 	var (
-		i          = idIndexes[0]
-		id         = reflect.Indirect(reflect.ValueOf(data[i])).Interface() // *int to int
+		i       = idIndexes[0]
+		idField = reflect.Indirect(reflect.ValueOf(data[i])).Interface().(sql.NullInt64)
+	)
+
+	// invalid means the primary key was NULL, so we should stop here (there is
+	// nothing further down). In addition make the slice nil (not empty) to
+	// indicate NULL values
+	if !idField.Valid {
+		// TODO: set dest to nil
+		return nil
+	}
+
+	if dest.IsNil() {
+		slice := reflect.MakeSlice(dest.Type(), 0, 1)
+		dest.Set(slice)
+	}
+
+	var (
+		id         = int(idField.Int64)
 		destType   = dest.Type()
 		obj, found = searchForId(dest, id) // ASSUMPTION: dest is a slice
 	)
@@ -547,7 +655,7 @@ func searchForId(dest reflect.Value, id interface{}) (obj reflect.Value, found b
 	//fmt.Printf("searchForId(%#v, %#v), len %d\n", dest, id, dest.Len())
 	for i := 0; i < dest.Len(); i++ {
 		obj := reflect.Indirect(dest.Index(i))
-		//fmt.Printf("--- comparing %#v (%[1]T) and %#v\n", obj.Field(0).Interface(), id)
+		//fmt.Printf("--- cmp %#v (%[1]T) , %#v (%[2]T)\n", obj.Field(0).Interface(), id)
 		if obj.NumField() > 0 && reflect.DeepEqual(obj.Field(0).Interface(), id) {
 			//fmt.Printf("--> %v\n", obj)
 			return obj.Addr(), true
@@ -587,15 +695,21 @@ func copyRowData(obj reflect.Value, data []interface{}, columns []string) error 
 			}
 			fieldVal := val.Field(i)
 
+		pickType:
 			switch fieldType.Kind() {
-			case reflect.Slice:
-				// ignore slices
 			case reflect.Ptr:
 				fieldVal = reflect.Indirect(fieldVal)
 
 				if fieldVal.Kind() == reflect.Struct {
 					colIndex++
 					return f(fieldVal)
+				}
+				fallthrough
+
+			case reflect.Slice:
+				// ignore slices of struct pointers
+				if fieldType.Elem().Kind() == reflect.Ptr && fieldType.Elem().Elem().Kind() == reflect.Struct {
+					break pickType
 				}
 				fallthrough
 
@@ -606,7 +720,29 @@ func copyRowData(obj reflect.Value, data []interface{}, columns []string) error 
 						fmt.Printf("--- value is %d\n", *n)
 					}
 				*/
-				fieldVal.Set(reflect.Indirect(reflect.ValueOf(data[colIndex])))
+				val := reflect.Indirect(reflect.ValueOf(data[colIndex]))
+
+				switch v := val.Interface().(type) {
+				case sql.NullBool:
+					val = reflect.ValueOf(v.Bool)
+				case sql.NullInt64:
+					val = reflect.ValueOf(v.Int64)
+				case NullUint64:
+					val = reflect.ValueOf(v.Uint64)
+				case sql.NullFloat64:
+					val = reflect.ValueOf(v.Float64)
+				case sql.NullString:
+					val = reflect.ValueOf(v.String)
+				case pq.NullTime:
+					val = reflect.ValueOf(v.Time)
+				default:
+					return fmt.Errorf("couldn't set %T to %v", v, fieldVal)
+				}
+
+				if t := fieldVal.Type(); val.Type().ConvertibleTo(t) {
+					val = val.Convert(t)
+				}
+				fieldVal.Set(val)
 			}
 			colIndex++
 		}
@@ -627,19 +763,9 @@ func getChildren(obj reflect.Value) (reflect.Value, error) {
 	for i := obj.NumField() - 1; i > 0; i-- {
 		field := obj.Field(i)
 		if field.Kind() == reflect.Slice {
-			if field.IsNil() {
-				slice := reflect.MakeSlice(field.Type(), 0, 0)
-				field.Set(slice)
-			}
-			return field.Addr(), nil
+			return field, nil
 		}
 	}
 
 	return reflect.Value{}, errors.New("no slice found in struct")
 }
-
-/*
-func dump(obj reflect.Value) {
-	fmt.Printf("... %#v\n", reflect.Indirect(obj).Interface())
-}
-*/

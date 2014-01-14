@@ -75,12 +75,6 @@ func exec(t *testing.T, query string) {
 	}
 }
 
-func assertEqual(t *testing.T, a, b interface{}) {
-	if !reflect.DeepEqual(a, b) {
-		t.Fatalf("want %v != got %v", b, a)
-	}
-}
-
 func TestCamelToSnake(t *testing.T) {
 	try := func(camel, snake string) {
 		if got := toSnake(camel); got != snake {
@@ -205,18 +199,27 @@ func TestDBQuery(t *testing.T) {
 	exec(t, `INSERT INTO b(a_id, data) SELECT id, (data^3)::float8 as data FROM a`)
 	exec(t, `INSERT INTO b(a_id, data) SELECT id, (data^4)::float8 as data FROM a`)
 	exec(t, `INSERT INTO c(b_id,data) SELECT id, data::text FROM b`)
+	exec(t, `INSERT INTO a(data) VALUES (7)`)
 
 	a := make([]*A, 0, 3)
 	if err := QueryJoin(&a, "SELECT * FROM a LEFT JOIN b ON a.id = b.a_id LEFT JOIN c ON c.b_id = b.id ORDER BY a.id, b.id, c.id"); err != nil {
 		t.Fatal(err)
 	}
 
-	assertEqual(t, len(a), 3)
-	assertEqual(t, a[0].Data, 1)
+	assertEqual := func(a, b interface{}) {
+		if !reflect.DeepEqual(a, b) {
+			t.Fatalf("want %T %[1]v != got %T %[2]v", b, a)
+		}
+	}
+
+	assertEqual(len(a), 4)
+	assertEqual(a[0].Data, 1)
 	//fmt.Printf("%#v\n", a[0].Bs)
-	assertEqual(t, len(a[0].Bs), 3)
-	assertEqual(t, a[1].Bs[2].Data, 81.0)
+	assertEqual(len(a[0].Bs), 3)
+	assertEqual(a[1].Bs[2].Data, 81.0)
 	//fmt.Printf("%#v\n", a[0].Bs[0])
-	assertEqual(t, len(a[0].Bs[0].Cs), 1)
-	assertEqual(t, a[2].Bs[2].Cs[0].Data, "625")
+	assertEqual(len(a[0].Bs[0].Cs), 1)
+	assertEqual(a[2].Bs[2].Cs[0].Data, "625")
+	assertEqual(a[3].Data, 7)
+	assertEqual(a[3].Bs, []*B(nil))
 }
