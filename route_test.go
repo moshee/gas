@@ -106,6 +106,8 @@ func TestDispatch(t *testing.T) {
 		g.Write([]byte("nope"))
 	}).Get("/test4", func(g *Gas) {
 		g.Write([]byte(strconv.FormatBool(g.Data("middleware").(bool))))
+	}).Get("/panic", func(g *Gas) {
+		panic("lol")
 	})
 
 	srv := httptest.NewServer(http.HandlerFunc(dispatch))
@@ -115,6 +117,14 @@ func TestDispatch(t *testing.T) {
 	testGet(t, srv, "/test2", "test")
 	testGet(t, srv, "/test3", "10")
 	testGet(t, srv, "/test4", "true")
+
+	resp, err := testclient.Get(srv.URL + "/panic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 500 {
+		t.Fatalf("expected 500 code for panic, got %d", resp.StatusCode)
+	}
 }
 
 func TestReroute(t *testing.T) {
