@@ -129,7 +129,9 @@ func TestDispatch(t *testing.T) {
 
 func TestReroute(t *testing.T) {
 	New().Get("/reroute1", func(g *Gas) {
-		g.Reroute("/reroute2", 303, map[string]string{"test": "ok"})
+		if err := g.Reroute("/reroute2", 303, map[string]string{"test": "ok"}); err != nil {
+			t.Fatal(err)
+		}
 	}).Get("/reroute2", func(g *Gas) {
 		var m map[string]string
 		if err := g.Recover(&m); err != nil {

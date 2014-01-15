@@ -1,4 +1,4 @@
-// package gas implements some sort of web framework
+// package gas implements some sort of web framework.
 package gas
 
 // gas.go contains initialization code and a big pile of things that don't
@@ -6,6 +6,7 @@ package gas
 
 import (
 	"bytes"
+	"crypto/hmac"
 	"encoding/base64"
 	"encoding/gob"
 	"encoding/json"
@@ -20,6 +21,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"code.google.com/p/go.crypto/sha3"
 )
 
 var (
@@ -154,30 +157,30 @@ func (g *Gas) Redirect(path string, code int) {
 // encoding/gob blob encoded from the data passed in. The recieving handler
 // should then check for the RerouteInfo on the request, and handle the special
 // case if necessary.
-func (g *Gas) Reroute(path string, code int, data interface{}) {
-	var cookieVal string
+func (g *Gas) Reroute(path string, code int, data interface{}) error {
+	var cookieVal []byte
 
 	if data != nil {
 		buf := new(bytes.Buffer)
 		enc := gob.NewEncoder(buf)
 		err := enc.Encode(data)
 
-		if err == nil {
-			cookieVal = base64.StdEncoding.EncodeToString(buf.Bytes())
-		} else {
-			Log(Warning, "gas: reroute: %v", err)
+		if err != nil {
+			return err
 		}
+
+		cookieVal = buf.Bytes()
 	}
 
 	g.SetCookie(&http.Cookie{
 		// Make it only visible on the target page (though if it's root it'll
 		// be everywhere, whatever)
-		Path:  path,
-		Name:  "_reroute",
-		Value: cookieVal,
-	})
+		Path: path,
+		Name: "_reroute",
+	}, cookieVal)
 
 	g.Redirect(path, code)
+	return nil
 }
 
 // Recover the reroute info stored in the cookie and decode it into dest. If
@@ -210,9 +213,51 @@ func (g *Gas) Error(code int, err error) {
 	g.Render("errors", code_s, ctx)
 }
 
-// Simple wrapper around http.SetCookie.
-func (g *Gas) SetCookie(cookie *http.Cookie) {
+// Set a cookie in the response, adding an HMAC digest to the end of the value
+// if that's enabled. If value isn't nil, it'll be interpreted as the value
+// destined for the cookie, the sum calculated off of it, and whatever value
+// the Cookie has already will be replaced.
+func (g *Gas) SetCookie(cookie *http.Cookie, value []byte) {
+	if value != nil && hmacKeys != nil && len(hmacKeys) > 0 {
+		value = hmacSum(value, hmacKeys[0], value)
+		cookie.Value = base64.StdEncoding.EncodeToString(value)
+	}
+
 	http.SetCookie(g, cookie)
+}
+
+// Return the cookie, if it exists. If HMAC is enabled, first check to see if the cookie is valid.
+func (g *Gas) Cookie(name string) (*http.Cookie, error) {
+	cookie, err := g.Request.Cookie(name)
+	if err != nil {
+		return nil, err
+	}
+
+	decodedLen := base64.StdEncoding.DecodedLen(len(cookie.Value))
+	if hmacKeys == nil || len(hmacKeys) == 0 || decodedLen < macLength {
+		return cookie, nil
+	}
+
+	p, err := base64.StdEncoding.DecodeString(cookie.Value)
+	if err != nil {
+		return nil, err
+	}
+
+	var (
+		pos = len(p) - macLength
+		val = p[:pos]
+		sum = p[pos:]
+	)
+
+	for _, key := range hmacKeys {
+		s := hmacSum(val, key, nil)
+		if hmac.Equal(s, sum) {
+			cookie.Value = base64.StdEncoding.EncodeToString(val)
+			return cookie, nil
+		}
+	}
+
+	return nil, errBadMac
 }
 
 // Simple wrapper around (http.ResponseWriter).Header().Set
@@ -300,4 +345,10 @@ func Init(funcs ...func()) {
 		initFuncs = make([]func(), 0, len(funcs))
 	}
 	initFuncs = append(initFuncs, funcs...)
+}
+
+func hmacSum(plaintext, key, b []byte) []byte {
+	mac := hmac.New(sha3.NewKeccak256, key)
+	mac.Write(plaintext)
+	return mac.Sum(b)
 }

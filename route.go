@@ -229,20 +229,22 @@ func dispatch(w http.ResponseWriter, r *http.Request) {
 
 	// Handle reroute cookie if there is one
 	reroute, err := g.Cookie("_reroute")
-	if err == nil {
-		blob, err := base64.StdEncoding.DecodeString(reroute.Value)
-
+	if reroute != nil {
 		if err == nil {
-			g.rerouteInfo = blob
-		} else {
-			Log(Warning, "gas: dispatch reroute: %v", err)
+			blob, err := base64.StdEncoding.DecodeString(reroute.Value)
+
+			if err == nil {
+				g.rerouteInfo = blob
+			} else {
+				Log(Warning, "gas: dispatch reroute: %v", err)
+			}
 		}
 
 		// Empty the cookie out and toss it back
 		reroute.Value = ""
 		reroute.MaxAge = -1
 
-		g.SetCookie(reroute)
+		g.SetCookie(reroute, nil)
 	}
 
 	if values, handlers := router.match(r); handlers != nil {

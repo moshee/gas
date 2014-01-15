@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"code.google.com/p/go.crypto/scrypt"
-	"code.google.com/p/go.crypto/sha3"
 )
 
 var (
@@ -36,47 +35,11 @@ type Session struct {
 	Username string
 }
 
-// Create a new random session ID, with HMAC digest if that's enabled. Returns just the sessid, and base64(sessid || MAC)
-func NewSession(username string) (sessid, encoded []byte) {
-	sessid = make([]byte, Env.SessidLen)
+// Create a new random session ID, base64 encoded
+func NewSession(username string) []byte {
+	sessid := make([]byte, Env.SessidLen)
 	rand.Read(sessid)
-
-	sum := sessid
-
-	if hmacKeys != nil && len(hmacKeys) > 0 {
-		sum = hmacSum(sessid, hmacKeys[0], sum)
-	}
-
-	encoded = make([]byte, base64.StdEncoding.EncodedLen(len(sum)))
-	base64.StdEncoding.Encode(encoded, sum)
-	return
-}
-
-// Decode a session cookie's value back into a []byte, checking if the HMAC
-// digest is valid if that's enabled.
-func CheckSession(sessid string) ([]byte, error) {
-	p, err := base64.StdEncoding.DecodeString(sessid)
-	if err != nil {
-		return nil, err
-	}
-	if len(p) > Env.SessidLen && hmacKeys != nil && len(hmacKeys) > 0 {
-		var (
-			pos = len(p) - macLength
-			id  = p[:pos]
-			sum = p[pos:]
-		)
-
-		for _, key := range hmacKeys {
-			s := hmacSum(id, key, nil)
-			if hmac.Equal(s, sum) {
-				return id, nil
-			}
-		}
-
-		return nil, errBadMac
-	} else {
-		return p, nil
-	}
+	return sessid
 }
 
 func createSession(id []byte, expires time.Time, username string) error {
@@ -114,16 +77,18 @@ func (g *Gas) Session() (*Session, error) {
 		if err == http.ErrNoCookie {
 			return nil, nil
 		} else {
+			g.SignOut()
 			return nil, err
 		}
 	}
 
-	id, err := CheckSession(cookie.Value)
+	id, err := base64.StdEncoding.DecodeString(cookie.Value)
 	if err != nil {
 		// this means invalid session
 		g.SignOut()
 		return nil, err
 	}
+	//id := []byte(cookie.Value)
 
 	g.session, err = readSession(id)
 
@@ -155,10 +120,11 @@ func (g *Gas) SignIn(u User) error {
 			return err
 		}
 
-		id, err := CheckSession(cookie.Value)
+		id, err := base64.StdEncoding.DecodeString(cookie.Value)
 		if err != nil {
 			return err
 		}
+		//id := []byte(cookie.Value)
 
 		if err := updateSession(id); err != nil {
 			return err
@@ -176,7 +142,7 @@ func (g *Gas) SignIn(u User) error {
 	}
 
 	username := u.Username()
-	sessid, encoded := NewSession(username)
+	sessid := NewSession(username)
 	err = createSession(sessid, time.Now().Add(Env.MaxCookieAge), username)
 	if err != nil {
 		return err
@@ -187,13 +153,12 @@ func (g *Gas) SignIn(u User) error {
 	// include the cookie in the header (the browser restricts this).
 	cookie := &http.Cookie{
 		Name:     "s",
-		Value:    string(encoded),
 		Path:     "/",
 		MaxAge:   int(Env.MaxCookieAge / time.Second),
 		HttpOnly: true,
 	}
 
-	g.SetCookie(cookie)
+	g.SetCookie(cookie, sessid)
 
 	return nil
 }
@@ -205,10 +170,11 @@ func (g *Gas) SignOut() error {
 		return err
 	}
 
-	id, err := CheckSession(cookie.Value)
+	id, err := base64.StdEncoding.DecodeString(cookie.Value)
 	if err != nil {
 		return err
 	}
+	//id := []byte(cookie.Value)
 
 	if err := deleteSession(id); err != nil && err != sql.ErrNoRows {
 		return err
@@ -219,8 +185,10 @@ func (g *Gas) SignOut() error {
 		Path:     "/",
 		Value:    "",
 		Expires:  time.Time{},
+		MaxAge:   -1,
 		HttpOnly: true,
-	})
+	}, nil)
+
 	return nil
 }
 
@@ -242,10 +210,4 @@ func NewHash(pass []byte) (hash, salt []byte) {
 	rand.Read(salt)
 	hash = Hash([]byte(pass), salt)
 	return
-}
-
-func hmacSum(plaintext, key, b []byte) []byte {
-	mac := hmac.New(sha3.NewKeccak256, key)
-	mac.Write(plaintext)
-	return mac.Sum(b)
 }

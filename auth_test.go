@@ -86,7 +86,7 @@ func TestAuth(t *testing.T) {
 	}
 
 	New().Get("/", func(g *Gas) {
-		if sess, _ := g.Session(); sess == nil {
+		if sess, err := g.Session(); sess == nil || err != nil {
 			fmt.Fprint(g, "no")
 		} else {
 			if u, err := new(MyUser).byUsername(sess.Username); err != nil {
@@ -127,7 +127,7 @@ func TestAuth(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(dispatch))
 	defer srv.Close()
 
-	hmacKeys = nil
+	hmacKeys = [][]byte{[]byte("super secret key")}
 
 	tester := &authTester{srv, testclient, t}
 	form := make(uri.Values)
@@ -145,8 +145,6 @@ func TestAuth(t *testing.T) {
 	tester.try("/logout", "yes", nil)
 	tester.try("/", "no", nil)
 	tester.try("/login", "no", form2)
-
-	hmacKeys = [][]byte{[]byte("super secret key")}
 
 	tester.try("/login", "yes", form)
 	tester.try("/hmac", "yes", nil)
