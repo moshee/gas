@@ -226,6 +226,10 @@ func dispatch(w http.ResponseWriter, r *http.Request) {
 	if router == nil {
 		router = default_router
 	}
+	if router == nil {
+		g.Error(404, nil)
+		return
+	}
 
 	// Handle reroute cookie if there is one
 	reroute, err := g.Cookie("_reroute")
