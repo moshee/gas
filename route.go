@@ -281,6 +281,8 @@ func fmtDuration(d time.Duration) string {
 		return fmt.Sprintf("% 4dµs", d/time.Microsecond)
 	case d <= time.Second:
 		return fmt.Sprintf("% 4dms", d/time.Millisecond)
+	case d <= time.Minute:
+		return fmt.Sprintf("%2.3fs", float64(d)/float64(time.Second))
 	default:
 		return fmt.Sprintf("% 6s", d.String())
 	}
@@ -300,7 +302,7 @@ func printStack(skip, count int) {
 		parent, oneUp := filepath.Split(filepath.Clean(parent))
 		file = filepath.Join(oneUp, file)
 
-		fmt.Fprintf(tw, "%2d  %s\t@ 0x%x\t%s:%d\n", i, name, pc, file, line)
+		fmt.Fprintf(tw, "%2d: %s:%d\t@ 0x%x\t%s\n", i, file, line, pc, name)
 	}
 	tw.Flush()
 }

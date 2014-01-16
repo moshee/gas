@@ -336,15 +336,13 @@ func Ignition(srv *http.Server) {
 
 		if srv == nil {
 			srv = &http.Server{
-				Addr:         port,
-				Handler:      http.HandlerFunc(dispatch),
 				ReadTimeout:  60 * time.Second,
 				WriteTimeout: 10 * time.Second,
 			}
-		} else {
-			srv.Addr = port
-			srv.Handler = http.HandlerFunc(dispatch)
 		}
+
+		srv.Addr = port
+		srv.Handler = http.HandlerFunc(dispatch)
 		LogFatal("Server: %v", srv.ListenAndServe())
 	}
 }
