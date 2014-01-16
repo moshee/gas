@@ -13,7 +13,9 @@ import (
 	"errors"
 	"flag"
 	"log"
+	"net"
 	"net/http"
+	"net/http/fcgi"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -30,6 +32,7 @@ var (
 	flag_verbosity = flag.Int("gas.loglevel", 2, "How much information to log (0=none, 1=fatal, 2=warning, 3=notice, 4=debug)")
 	flag_log       = flag.String("gas.log", "", "File to log to (log disabled for empty path)")
 	sigchan        = make(chan os.Signal, 2)
+	fcgiListener   net.Listener
 )
 
 var (
@@ -284,9 +287,16 @@ func handle_signals(c chan os.Signal) {
 	}
 }
 
+// Call before Ignition with a net.Listener to use FastCGI instead of the
+// regular server
+func UseFastCGI(l net.Listener) {
+	fcgiListener = l
+}
+
 func initThings() {
 	if DB != nil {
-		_, err := DB.Exec("CREATE TABLE IF NOT EXISTS " + Env.SessTable + " ( id bytea, expires timestamptz, username text )")
+		_, err := DB.Exec("CREATE TABLE IF NOT EXISTS " + Env.SessTable +
+			" ( id bytea, expires timestamptz, username text )")
 		if err != nil {
 			LogFatal("%v", err)
 		}
@@ -304,11 +314,11 @@ func Ignition(srv *http.Server) {
 	initThings()
 
 	defer func() {
-		if DB != nil {
-			DB.Close()
-		}
 		for _, stmt := range stmtCache {
 			stmt.Close()
+		}
+		if DB != nil {
+			DB.Close()
 		}
 	}()
 
@@ -316,24 +326,27 @@ func Ignition(srv *http.Server) {
 
 	Templates = parse_templates("./templates")
 
-	port := ":" + strconv.Itoa(Env.Port)
-
-	if srv == nil {
-		srv = &http.Server{
-			Addr:         port,
-			Handler:      http.HandlerFunc(dispatch),
-			ReadTimeout:  60 * time.Second,
-			WriteTimeout: 10 * time.Second,
-		}
-	} else {
-		srv.Addr = port
-		srv.Handler = http.HandlerFunc(dispatch)
-	}
-
 	now := time.Now().Format("2006-01-02 15:04")
 	LogNotice("=== Session: %s =========================", now)
 
-	Log(Fatal, "%v", srv.ListenAndServe())
+	if fcgiListener != nil {
+		LogFatal("FastCGI: %v", fcgi.Serve(fcgiListener, http.HandlerFunc(dispatch)))
+	} else {
+		port := ":" + strconv.Itoa(Env.Port)
+
+		if srv == nil {
+			srv = &http.Server{
+				Addr:         port,
+				Handler:      http.HandlerFunc(dispatch),
+				ReadTimeout:  60 * time.Second,
+				WriteTimeout: 10 * time.Second,
+			}
+		} else {
+			srv.Addr = port
+			srv.Handler = http.HandlerFunc(dispatch)
+		}
+		LogFatal("Server: %v", srv.ListenAndServe())
+	}
 }
 
 var initFuncs []func()
