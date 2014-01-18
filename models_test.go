@@ -1,6 +1,7 @@
 package gas
 
 import (
+	"database/sql"
 	"reflect"
 	"testing"
 	"time"
@@ -50,7 +51,7 @@ type B struct {
 type C struct {
 	Id   int
 	BId  int `sql:"b_id"`
-	Data string
+	Data sql.NullString
 }
 
 func match(t *testing.T, test *Tester, a string, b int, c time.Time) {
@@ -219,7 +220,7 @@ func TestDBQuery(t *testing.T) {
 	assertEqual(a[1].Bs[2].Data, 81.0)
 	//fmt.Printf("%#v\n", a[0].Bs[0])
 	assertEqual(len(a[0].Bs[0].Cs), 1)
-	assertEqual(a[2].Bs[2].Cs[0].Data, "625")
+	assertEqual(a[2].Bs[2].Cs[0].Data.String, "625")
 	assertEqual(a[3].Data, 7)
 	assertEqual(a[3].Bs, []*B(nil))
 }

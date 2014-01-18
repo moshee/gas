@@ -546,10 +546,12 @@ func getDests(t reflect.Type) (dests []interface{}, idIndexes []int, err error) 
 				nullable = new(sql.NullFloat64)
 
 			default:
-				nullable = reflect.Zero(fieldType).Interface()
+				nullable = reflect.New(fieldType).Interface()
 				switch nullable.(type) {
-				case time.Time:
+				case *time.Time:
 					nullable = new(pq.NullTime)
+				case *sql.NullBool, *sql.NullFloat64, *sql.NullInt64, *sql.NullString:
+					// these are good, leave them as they are
 				default:
 					return fmt.Errorf("can't make a nullable %v", field.Type)
 				}
@@ -721,20 +723,31 @@ func copyRowData(obj reflect.Value, data []interface{}, columns []string) error 
 					}
 				*/
 				val := reflect.Indirect(reflect.ValueOf(data[colIndex]))
+				fieldIface := fieldVal.Interface()
 
 				switch v := val.Interface().(type) {
 				case sql.NullBool:
-					val = reflect.ValueOf(v.Bool)
+					if _, ok := fieldIface.(sql.NullBool); !ok {
+						val = reflect.ValueOf(v.Bool)
+					}
 				case sql.NullInt64:
-					val = reflect.ValueOf(v.Int64)
+					if _, ok := fieldIface.(sql.NullInt64); !ok {
+						val = reflect.ValueOf(v.Int64)
+					}
 				case NullUint64:
 					val = reflect.ValueOf(v.Uint64)
 				case sql.NullFloat64:
-					val = reflect.ValueOf(v.Float64)
+					if _, ok := fieldIface.(sql.NullFloat64); !ok {
+						val = reflect.ValueOf(v.Float64)
+					}
 				case sql.NullString:
-					val = reflect.ValueOf(v.String)
+					if _, ok := fieldIface.(sql.NullString); !ok {
+						val = reflect.ValueOf(v.String)
+					}
 				case pq.NullTime:
-					val = reflect.ValueOf(v.Time)
+					if _, ok := fieldIface.(pq.NullTime); !ok {
+						val = reflect.ValueOf(v.Time)
+					}
 				default:
 					return fmt.Errorf("couldn't set %T to %v", v, fieldVal)
 				}

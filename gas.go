@@ -208,7 +208,7 @@ func (g *Gas) Error(code int, err error) {
 	code_s := strconv.Itoa(code)
 
 	if err != nil {
-		buf := fmtStack(1, 10)
+		buf := fmtStack(2, 10)
 		ctx.Stack = string(buf.Bytes())
 	}
 	g.Render("errors", code_s, ctx)
