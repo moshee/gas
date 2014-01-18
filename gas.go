@@ -274,7 +274,7 @@ func (g *Gas) JSON(val interface{}) error {
 }
 
 func (g *Gas) Domain() string {
-	return strings.SplitN(g.Host, ":", 1)[0]
+	return strings.SplitN(g.Host, ":", 2)[0]
 }
 
 func handle_signals(c chan os.Signal) {
