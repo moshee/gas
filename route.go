@@ -229,8 +229,8 @@ func dispatch(w http.ResponseWriter, r *http.Request) {
 		router = default_router
 	}
 	if router == nil {
-		g.Error(404, nil)
-		return
+		g.Error(404, fmt.Errorf("no router for domain: %s", g.Domain()))
+		goto handled
 	}
 
 	// Handle reroute cookie if there is one
@@ -271,7 +271,7 @@ func dispatch(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	} else {
-		g.Error(404, nil)
+		g.Error(404, fmt.Errorf("no handler found for path %s", r.URL.Path))
 	}
 handled:
 	LogNotice("[%s] %15s %7s (%d) %s%s", fmtDuration(time.Now().Sub(now)),
