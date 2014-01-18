@@ -1,8 +1,10 @@
 package gas
 
 import (
+	"bytes"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -292,11 +294,12 @@ func fmtDuration(d time.Duration) string {
 	}
 }
 
-func printStack(skip, count int) {
+func fmtStack(skip, count int) *bytes.Buffer {
+	buf := new(bytes.Buffer)
 	pcs := make([]uintptr, count)
 	s := runtime.Callers(skip, pcs)
 	pcs = pcs[:s]
-	tw := tabwriter.NewWriter(os.Stderr, 4, 8, 1, ' ', 0)
+	tw := tabwriter.NewWriter(buf, 4, 8, 1, ' ', 0)
 
 	for i, pc := range pcs {
 		f := runtime.FuncForPC(pc)
@@ -309,4 +312,11 @@ func printStack(skip, count int) {
 		fmt.Fprintf(tw, "%2d: %s:%d\t@ 0x%x\t%s\n", i, file, line, pc, name)
 	}
 	tw.Flush()
+
+	return buf
+}
+
+func printStack(skip, count int) {
+	buf := fmtStack(skip+1, count)
+	io.Copy(os.Stderr, buf)
 }

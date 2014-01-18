@@ -19,7 +19,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -209,9 +208,8 @@ func (g *Gas) Error(code int, err error) {
 	code_s := strconv.Itoa(code)
 
 	if err != nil {
-		buf := make([]byte, 4096)
-		n := runtime.Stack(buf, false)
-		ctx.Stack = string(buf[:n])
+		buf := fmtStack(1, 10)
+		ctx.Stack = string(buf.Bytes())
 	}
 	g.Render("errors", code_s, ctx)
 }
