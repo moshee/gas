@@ -224,14 +224,6 @@ func dispatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now()
-	router := routers[g.Domain()]
-	if router == nil {
-		router = default_router
-	}
-	if router == nil {
-		g.Error(404, fmt.Errorf("no router for domain: %s", g.Domain()))
-		goto handled
-	}
 
 	// Handle reroute cookie if there is one
 	reroute, err := g.Cookie("_reroute")
@@ -253,6 +245,14 @@ func dispatch(w http.ResponseWriter, r *http.Request) {
 		g.SetCookie(reroute, nil)
 	}
 
+	router := routers[g.Domain()]
+	if router == nil {
+		router = default_router
+	}
+	if router == nil {
+		g.Error(404, fmt.Errorf("no router for domain: %s", g.Domain()))
+		goto handled
+	}
 	if values, handlers := router.match(r); handlers != nil {
 		g.args = values
 		for _, handler := range router.middleware {
