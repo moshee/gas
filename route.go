@@ -286,7 +286,7 @@ func fmtDuration(d time.Duration) string {
 	case d <= time.Second:
 		return fmt.Sprintf("% 4dms", d/time.Millisecond)
 	case d <= time.Minute:
-		return fmt.Sprintf("%2.3fs", float64(d)/float64(time.Second))
+		return fmt.Sprintf("%5.2fs", float64(d)/float64(time.Second))
 	default:
 		return fmt.Sprintf("% 6s", d.String())
 	}
