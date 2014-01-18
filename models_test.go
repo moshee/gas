@@ -150,7 +150,7 @@ func TestDBQuery(t *testing.T) {
 	}
 	match(t, test, "testing", 9001, t1)
 
-	test2 := make([]Tester, 2)
+	test2 := make([]Tester, 0, 2)
 	err = Query(&test2, "SELECT * FROM go_test")
 	if err != nil {
 		t.Fatal(err)

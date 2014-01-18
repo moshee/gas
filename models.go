@@ -246,13 +246,19 @@ func Register(t reflect.Type) (*model, error) {
 	switch elem.Kind() {
 	case reflect.Slice:
 		elem = elem.Elem()
+		if elem.Kind() == reflect.Ptr {
+			elem = elem.Elem()
+			if elem.Kind() != reflect.Struct {
+				return nil, fmt.Errorf(errNotStruct, t)
+			}
+		}
 	case reflect.Struct:
 		// continue
 	default:
 		return nil, fmt.Errorf(errNotStruct, t)
 	}
 
-	//	fmt.Printf("\nregistering %s\n", t.Name())
+	//fmt.Printf("\nregistering %s\n", t.Name())
 
 	m := new(model)
 	numField := elem.NumField()

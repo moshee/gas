@@ -118,6 +118,8 @@ func TestDispatch(t *testing.T) {
 	testGet(t, srv, "/test3", "10")
 	testGet(t, srv, "/test4", "true")
 
+	v := Verbosity
+	Verbosity -= v
 	resp, err := testclient.Get(srv.URL + "/panic")
 	if err != nil {
 		t.Fatal(err)
@@ -125,6 +127,7 @@ func TestDispatch(t *testing.T) {
 	if resp.StatusCode != 500 {
 		t.Fatalf("expected 500 code for panic, got %d", resp.StatusCode)
 	}
+	Verbosity = v
 }
 
 func TestReroute(t *testing.T) {

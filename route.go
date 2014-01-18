@@ -317,6 +317,8 @@ func fmtStack(skip, count int) *bytes.Buffer {
 }
 
 func printStack(skip, count int) {
-	buf := fmtStack(skip+1, count)
-	io.Copy(os.Stderr, buf)
+	if Verbosity > None {
+		buf := fmtStack(skip+1, count)
+		io.Copy(os.Stderr, buf)
+	}
 }
