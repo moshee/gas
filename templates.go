@@ -2,13 +2,16 @@ package gas
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
-	md "github.com/russross/blackfriday"
 	"html/template"
 	"io"
 	"io/ioutil"
 	"path/filepath"
 	"sync"
+	"time"
+
+	md "github.com/russross/blackfriday"
 )
 
 // Each module has one associated template. It contains all of the templates
@@ -28,20 +31,23 @@ var (
 			return template.HTML(s)
 		},
 		"markdown": markdown,
-		"smarkdown": func(s interface{}) template.HTML {
+		"smarkdown": func(s interface{}) (template.HTML, error) {
 			switch v := s.(type) {
 			case sql.NullString:
 				if v.Valid {
-					return markdown([]byte(v.String))
+					return markdown([]byte(v.String)), nil
 				} else {
-					return template.HTML("")
+					return template.HTML(""), nil
 				}
 
 			case string:
-				return markdown([]byte(v))
+				return markdown([]byte(v)), nil
 			}
 
-			return template.HTML("")
+			return template.HTML(""), errors.New("non-string type passed into smarkdown")
+		},
+		"datetime": func(t time.Time) string {
+			return t.Format("2006-01-02T15:04:05Z")
 		},
 	}
 )
@@ -58,7 +64,8 @@ func init() {
 //     "string":    func(b []byte) string
 //     "raw":       func(s string) template.HTML
 //     "markdown":  func(b []byte) template.HTML
-//     "smarkdown": func(s string) template.HTML
+//     "smarkdown": func(s string) (template.HTML, error)
+//     "datetime":  func(t time.Time) string
 func TemplateFunc(template_name, name string, f interface{}) {
 	funcmap, ok := template_funcmap[template_name]
 	if !ok {

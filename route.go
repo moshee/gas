@@ -12,8 +12,12 @@ import (
 	"time"
 )
 
+type Responder interface {
+	Respond(w http.ResponseWriter, r *http.Request) error
+}
+
 // All request handlers implemented should have this signature.
-type Handler func(*Gas)
+type Handler func(*Gas) Responder
 
 type matcher struct {
 	s    string
