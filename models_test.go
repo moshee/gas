@@ -35,17 +35,22 @@ type Tester5 struct {
 	ThirdColumn string `sql:"test"`
 }
 
+type CustomInt int
+
 type A struct {
 	Id   int
 	Data int
+	T    time.Time
+	N    CustomInt
 	Bs   []*B
 }
 
 type B struct {
-	Id   int
-	AId  int `sql:"a_id"`
-	Data float64
-	Cs   []C
+	Id               int
+	AId              int `sql:"a_id"`
+	Data             float64
+	IgnoreThisPlease []*Tester4
+	Cs               []C
 }
 
 type C struct {
@@ -182,8 +187,10 @@ func TestDBQuery(t *testing.T) {
 
 	// joins
 	exec(t, `CREATE TEMP TABLE a (
-		id   serial PRIMARY KEY,
-		data int    NOT NULL
+		id   serial      PRIMARY KEY,
+		data int         NOT NULL,
+		t    timestamptz NOT NULL DEFAULT now(),
+		n    int         NOT NULL DEFAULT 999
 	)`)
 	exec(t, `CREATE TEMP TABLE b (
 		id   serial PRIMARY KEY,
@@ -195,7 +202,7 @@ func TestDBQuery(t *testing.T) {
 		b_id int    NOT NULL REFERENCES b,
 		data text   NOT NULL
 	)`)
-	exec(t, `INSERT INTO a(data) VALUES (1),(3),(5)`)
+	exec(t, `INSERT INTO a(data, t, n) VALUES (1, now(), 25),(3, now(), 36),(5, now(), 49)`)
 	exec(t, `INSERT INTO b(a_id, data) SELECT id, (data^2)::float8 as data FROM a`)
 	exec(t, `INSERT INTO b(a_id, data) SELECT id, (data^3)::float8 as data FROM a`)
 	exec(t, `INSERT INTO b(a_id, data) SELECT id, (data^4)::float8 as data FROM a`)
@@ -215,12 +222,14 @@ func TestDBQuery(t *testing.T) {
 
 	assertEqual(len(a), 4)
 	assertEqual(a[0].Data, 1)
+	assertEqual(a[0].N, CustomInt(25))
 	//fmt.Printf("%#v\n", a[0].Bs)
 	assertEqual(len(a[0].Bs), 3)
 	assertEqual(a[1].Bs[2].Data, 81.0)
 	//fmt.Printf("%#v\n", a[0].Bs[0])
 	assertEqual(len(a[0].Bs[0].Cs), 1)
 	assertEqual(a[2].Bs[2].Cs[0].Data.String, "625")
+	assertEqual(a[3].N, CustomInt(999))
 	assertEqual(a[3].Data, 7)
 	assertEqual(a[3].Bs, []*B(nil))
 }

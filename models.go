@@ -438,6 +438,7 @@ func queryJoinSlice(t reflect.Type, dest interface{}, rows *sql.Rows) error {
 	if err != nil {
 		return err
 	}
+	//dump(dests)
 
 	columns, err := rows.Columns()
 	if err != nil {
@@ -469,9 +470,9 @@ func dump(s []interface{}) {
 	for _, i := range s {
 		v := reflect.Indirect(reflect.ValueOf(i))
 		if v.IsValid() {
-			fmt.Printf("%v\t", reflect.Indirect(reflect.ValueOf(i)).Interface())
+			fmt.Printf("%T:%[1]v\t", reflect.Indirect(reflect.ValueOf(i)).Interface())
 		} else {
-			fmt.Printf("%v\t", v)
+			fmt.Printf("%T:%[1]v\t", v)
 		}
 	}
 	fmt.Println()
@@ -523,6 +524,10 @@ func getDests(t reflect.Type) (dests []interface{}, idIndexes []int, err error) 
 				nullable = new(sql.NullString)
 
 			case reflect.Slice:
+				// we only want the last slice
+				if j < t.NumField()-1 {
+					continue
+				}
 				switch elem := fieldType.Elem(); elem.Kind() {
 				case reflect.Ptr:
 					elem = elem.Elem()
