@@ -20,9 +20,6 @@ var (
 	logger      *log.Logger
 	logFile     *os.File
 	logFilePath string
-	//logChan                  = make(chan logMessage, 10)
-	//logRotateThreshold int64 = 5 * 1024 * 1024 // 5MB
-	//logNeedRotate            = make(chan time.Time)
 )
 
 func (l LogLevel) String() string {
