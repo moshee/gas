@@ -1,7 +1,6 @@
 package gas
 
 import (
-	"compress/gzip"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -9,7 +8,6 @@ import (
 	"io"
 	"io/ioutil"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -127,7 +125,7 @@ func parse_templates(base string) map[string]*template.Template {
 	return ts
 }
 
-// Render the given template by name out of the given directory with gzip compression
+// Render the given template by name out of the given directory.
 func (g *Gas) Render(path, name string, data interface{}) {
 	templateLock.RLock()
 	defer templateLock.RUnlock()
@@ -160,20 +158,19 @@ func (g *Gas) Render(path, name string, data interface{}) {
 		fmt.Fprintf(g, "Error: no such template: %s/%s", path, name)
 		return
 	}
-
-	var w io.Writer
-
-	if strings.Contains(g.Request.Header.Get("Accept-Encoding"), "gzip") {
-		g.Header().Set("Content-Encoding", "gzip")
-		gz := gzip.NewWriter(g)
-		defer gz.Close()
-		w = io.Writer(gz)
-	} else {
-		w = io.Writer(g)
-	}
-
-	if err := t.Execute(w, data); err != nil {
-		fmt.Fprintf(w, "%s/%s: %v", path, name, err)
+	if err := t.Execute(g, data); err != nil {
+		t = Templates[path].Lookup(name + "-error")
+		LogWarning("Failed to render template %s/%s: %v", path, name, err)
+		if t == nil {
+			LogWarning("Template %s/%s has no error template", path, name)
+			fmt.Fprintf(g, "Error: failed to serve error page for %s/%s (error template not found)", path, name)
+			return
+		}
+		if err = t.Execute(g, err); err != nil {
+			LogWarning("Failed to render error template for %s/%s (%v)", path, name, err)
+			fmt.Fprintf(g, "Error: failed to serve error page for %s/%s (%v)", path, name, err)
+			return
+		}
 	}
 }
 
