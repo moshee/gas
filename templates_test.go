@@ -2,6 +2,8 @@ package gas
 
 import (
 	"bytes"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -16,4 +18,16 @@ func TestExecTemplates(t *testing.T) {
 	if got != exp {
 		t.Fatalf("templates: expected '%s', got '%s'\n", exp, got)
 	}
+}
+
+func TestRender(t *testing.T) {
+	Templates = parse_templates("./testdata")
+	New().Get("/render-test", func(g *Gas) {
+		g.Render("a", "index", "tester")
+	})
+
+	srv := httptest.NewServer(http.HandlerFunc(dispatch))
+	defer srv.Close()
+
+	testGet(t, srv, "/render-test", "Hello, tester! testing!")
 }
