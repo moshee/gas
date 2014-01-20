@@ -70,33 +70,39 @@ func init() {
 	}
 }
 
-type Error struct {
-	Path  string
-	Err   error
-	Stack string
-}
-
 // Request context. All incoming requests are boxed into a *Gas and passed to
 // handler functions. Comes with embedded standard net/http arguments as well
 // as the captured URL variables (if any), and has some convenience methods
 // attached.
-//
-// Gas satisfies the http.ResponseWriter interface.
 type Gas struct {
 	w http.ResponseWriter
 	*http.Request
 	args map[string]string
 	data map[string]interface{}
 
-	// The HTTP response code that was written to the request. If a response
-	// has not be written yet, responseCode will be 0.
-	responseCode int
-
+	// Whatever data was left behind by the rerouteOutputter
 	rerouteInfo []byte
 
+	responseCode int
+
+	// Session cache
 	session *Session
 }
 
+func (g *Gas) Write(p []byte) (int, error) {
+	return g.w.Write(p)
+}
+
+func (g *Gas) WriteHeader(code int) {
+	g.responseCode = code
+	g.w.WriteHeader(code)
+}
+
+func (g *Gas) Header() http.Header {
+	return g.w.Header()
+}
+
+// Arg returns the URL parameter named by key
 func (g *Gas) Arg(key string) string {
 	if g.args != nil {
 		return g.args[key]
@@ -104,6 +110,7 @@ func (g *Gas) Arg(key string) string {
 	return ""
 }
 
+// IntArg parses the named URL parameter as an int
 func (g *Gas) IntArg(key string) (int, error) {
 	return strconv.Atoi(g.Arg(key))
 }
@@ -125,64 +132,10 @@ func (g *Gas) Data(key string) interface{} {
 	return nil
 }
 
-func (g *Gas) Write(p []byte) (n int, err error) {
-	if g.responseCode == 0 {
-		g.responseCode = 200
-	}
-	return g.w.Write(p)
-}
-
-func (g *Gas) WriteHeader(code int) {
-	g.responseCode = code
-	g.w.WriteHeader(code)
-}
-
-func (g *Gas) ResponseCode() int {
-	return g.responseCode
-}
-
-func (g *Gas) Header() http.Header {
-	return g.w.Header()
-}
-
+// TODO: deprecate
 // Simple wrapper around `http.ServeFile`.
 func (g *Gas) ServeFile(path string) {
 	http.ServeFile(g, g.Request, path)
-}
-
-// Simple wrapper around `http.Redirect`.
-func (g *Gas) Redirect(path string, code int) {
-	http.Redirect(g, g.Request, path, code)
-}
-
-// Perform a redirect, but first place a cookie on the client containing an
-// encoding/gob blob encoded from the data passed in. The recieving handler
-// should then check for the RerouteInfo on the request, and handle the special
-// case if necessary.
-func (g *Gas) Reroute(path string, code int, data interface{}) error {
-	var cookieVal []byte
-
-	if data != nil {
-		buf := new(bytes.Buffer)
-		enc := gob.NewEncoder(buf)
-		err := enc.Encode(data)
-
-		if err != nil {
-			return err
-		}
-
-		cookieVal = buf.Bytes()
-	}
-
-	g.SetCookie(&http.Cookie{
-		// Make it only visible on the target page (though if it's root it'll
-		// be everywhere, whatever)
-		Path: path,
-		Name: "_reroute",
-	}, cookieVal)
-
-	g.Redirect(path, code)
-	return nil
 }
 
 // Recover the reroute info stored in the cookie and decode it into dest. If
@@ -195,29 +148,47 @@ func (g *Gas) Recover(dest interface{}) error {
 	return dec.Decode(dest)
 }
 
-// Serve up an error page from /templates/errors. Templates in that directory
-// should have the naming scheme `<code>.tmpl`, where code is the numeric HTTP
-// status code (such as `404.tmpl`). The provided error is supplied as the
-// template context in a gas.Error value.
-func (g *Gas) Error(code int, err error) {
-	g.WriteHeader(code)
-	ctx := Error{
-		Path: g.URL.Path,
-		Err:  err,
-	}
-	code_s := strconv.Itoa(code)
+type OutputFunc func(code int, g *Gas)
 
-	if err != nil {
-		buf := fmtStack(2, 10)
-		ctx.Stack = string(buf.Bytes())
-	}
-	g.Render("errors", code_s, ctx)
+func (o OutputFunc) Output(code int, g *Gas) {
+	o(code, g)
 }
 
-// Set a cookie in the response, adding an HMAC digest to the end of the value
-// if that's enabled. If value isn't nil, it'll be interpreted as the value
-// destined for the cookie, the sum calculated off of it, and whatever value
-// the Cookie has already will be replaced.
+type ErrorInfo struct {
+	Err   string
+	Path  string
+	Host  string
+	Stack string
+}
+
+type errorOutputter struct {
+	error
+}
+
+func (o errorOutputter) Output(code int, g *Gas) {
+	s := strconv.Itoa(code)
+	err := &ErrorInfo{
+		Err:   o.error.Error(),
+		Path:  g.URL.Path,
+		Host:  g.Host,
+		Stack: fmtStack(3, 10).String(),
+	}
+	(&templateOutputter{"errors", s, err}).Output(code, g)
+}
+
+// Error returns an Outputter that will serve up an error page from
+// /templates/errors. Templates in that directory should have the naming scheme
+// `<code>.tmpl`, where <code> is the numeric HTTP status code (such as
+// `404.tmpl`). The provided error is supplied as the template context in a
+// gas.ErrorInfo value.
+func Error(err error) Outputter {
+	return errorOutputter{err}
+}
+
+// SetCookie sets a cookie in the response, adding an HMAC digest to the end of
+// the value if that's enabled. If value isn't nil, it'll be interpreted as the
+// value destined for the cookie, the sum calculated off of it, and whatever
+// value the Cookie has already will be replaced.
 func (g *Gas) SetCookie(cookie *http.Cookie, value []byte) {
 	if value != nil && hmacKeys != nil && len(hmacKeys) > 0 {
 		value = hmacSum(value, hmacKeys[0], value)
@@ -227,7 +198,8 @@ func (g *Gas) SetCookie(cookie *http.Cookie, value []byte) {
 	http.SetCookie(g, cookie)
 }
 
-// Return the cookie, if it exists. If HMAC is enabled, first check to see if the cookie is valid.
+// Return the cookie, if it exists. If HMAC is enabled, first check to see if
+// the cookie is valid.
 func (g *Gas) Cookie(name string) (*http.Cookie, error) {
 	cookie, err := g.Request.Cookie(name)
 	if err != nil {
@@ -261,20 +233,71 @@ func (g *Gas) Cookie(name string) (*http.Cookie, error) {
 	return nil, errBadMac
 }
 
-// Simple wrapper around (http.ResponseWriter).Header().Set
-func (g *Gas) SetHeader(key, vals string) {
-	g.Header().Set(key, vals)
-}
-
-// Write the given value as JSON to the client.
-func (g *Gas) JSON(val interface{}) error {
-	g.Header().Set("Content-Type", "application/json")
-	e := json.NewEncoder(g)
-	return e.Encode(val)
-}
-
 func (g *Gas) Domain() string {
 	return strings.SplitN(g.Host, ":", 2)[0]
+}
+
+type jsonOutputter struct {
+	data interface{}
+}
+
+func JSON(data interface{}) Outputter {
+	return jsonOutputter{data}
+}
+
+func (o jsonOutputter) Output(code int, g *Gas) {
+	g.Header().Set("Content-Type", "application/json; charset=utf-8")
+	g.WriteHeader(code)
+	json.NewEncoder(g).Encode(o.data)
+}
+
+type redirectOutputter string
+
+func Redirect(path string) Outputter {
+	return redirectOutputter(path)
+}
+
+func (o redirectOutputter) Output(code int, g *Gas) {
+	http.Redirect(g, g.Request, string(o), code)
+}
+
+type rerouteOutputter struct {
+	path string
+	data interface{}
+}
+
+// Reroute will perform a redirect, but first place a cookie on the client
+// containing an encoding/gob blob encoded from the data passed in. The
+// recieving handler should then check for the RerouteInfo on the request, and
+// handle the special case if necessary.
+func Reroute(path string, data interface{}) Outputter {
+	return &rerouteOutputter{path, data}
+}
+
+func (o *rerouteOutputter) Output(code int, g *Gas) {
+	var cookieVal []byte
+
+	if o.data != nil {
+		buf := new(bytes.Buffer)
+		enc := gob.NewEncoder(buf)
+		err := enc.Encode(o.data)
+
+		// TODO: do we want to ignore an encode error here?
+		if err != nil {
+			Error(err).Output(code, g)
+			return
+		}
+
+		cookieVal = buf.Bytes()
+	}
+
+	g.SetCookie(&http.Cookie{
+		Path:     o.path,
+		Name:     "_reroute",
+		HttpOnly: true,
+	}, cookieVal)
+
+	redirectOutputter(o.path).Output(code, g)
 }
 
 func handle_signals(c chan os.Signal) {

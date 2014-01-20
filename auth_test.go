@@ -85,7 +85,7 @@ func TestAuth(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	New().Get("/", func(g *Gas) {
+	New().Get("/", func(g *Gas) (int, Outputter) {
 		if sess, err := g.Session(); sess == nil || err != nil {
 			fmt.Fprint(g, "no")
 		} else {
@@ -95,7 +95,8 @@ func TestAuth(t *testing.T) {
 				fmt.Fprintf(g, "%d", u.Id)
 			}
 		}
-	}).Get("/hmac", func(g *Gas) {
+		return -1, nil
+	}).Get("/hmac", func(g *Gas) (int, Outputter) {
 		_, err := g.Session()
 		if err != nil {
 			fmt.Fprint(g, "no")
@@ -105,23 +106,26 @@ func TestAuth(t *testing.T) {
 		} else {
 			fmt.Fprint(g, "yes")
 		}
-	}).Post("/login", func(g *Gas) {
+		return -1, nil
+	}).Post("/login", func(g *Gas) (int, Outputter) {
 		u, err := new(MyUser).byUsername(g.FormValue("username"))
 		if err != nil {
 			fmt.Fprint(g, "no")
-			return
+			return -1, nil
 		}
 		if err = g.SignIn(u); err != nil {
 			fmt.Fprint(g, "no")
 		} else {
 			fmt.Fprint(g, "yes")
 		}
-	}).Get("/logout", func(g *Gas) {
+		return -1, nil
+	}).Get("/logout", func(g *Gas) (int, Outputter) {
 		if err := g.SignOut(); err != nil {
 			fmt.Fprint(g, "no")
 		} else {
 			fmt.Fprint(g, "yes")
 		}
+		return -1, nil
 	})
 
 	srv := httptest.NewServer(http.HandlerFunc(dispatch))

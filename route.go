@@ -15,7 +15,11 @@ import (
 )
 
 // All request handlers implemented should have this signature.
-type Handler func(*Gas)
+type Handler func(g *Gas) (code int, o Outputter)
+
+type Outputter interface {
+	Output(code int, g *Gas)
+}
 
 type matcher struct {
 	s    string
@@ -147,13 +151,10 @@ func New(subdomains ...string) (r *Router) {
 	return
 }
 
+// Use instructs this router to use the given middleware stack. The router's
+// existing stack, if any, will be replaced.
 func (r *Router) Use(middleware ...Handler) *Router {
 	r.middleware = middleware
-	return r
-}
-
-func (r *Router) UseMore(middleware ...Handler) *Router {
-	r.middleware = append(r.middleware, middleware...)
 	return r
 }
 
@@ -177,8 +178,7 @@ func (r *Router) Head(pattern string, handlers ...Handler) *Router {
 }
 
 func (r *Router) Get(pattern string, handlers ...Handler) *Router {
-	// Go1.2 adds HEAD to GET automatically
-	return r.Add(pattern, "GET", handlers...)
+	return r.Add(pattern, "GET", handlers...).Head(pattern, handlers...)
 }
 
 func (r *Router) Post(pattern string, handlers ...Handler) *Router {
@@ -204,19 +204,15 @@ func dispatch(w http.ResponseWriter, r *http.Request) {
 			// that way we can get right to the source of it with less noise
 			printStack(3, 10)
 
-			var (
-				err error
-				ok  bool
-			)
-			if err, ok = nuke.(error); !ok {
+			err, ok := nuke.(error)
+			if !ok {
 				err = fmt.Errorf("%v", nuke)
 			}
 			g := &Gas{w: w, Request: r}
-			g.Error(500, err)
+			Error(err).Output(500, g)
 		}
 	}()
 	defer r.Body.Close()
-	r.Close = true
 
 	g := &Gas{
 		w:       w,
@@ -250,28 +246,26 @@ func dispatch(w http.ResponseWriter, r *http.Request) {
 		router = default_router
 	}
 	if router == nil {
-		g.Error(404, fmt.Errorf("no router for domain: %s", g.Domain()))
+		Error(fmt.Errorf("no router for domain: %s", g.Domain())).Output(404, g)
 		goto handled
 	}
 	if values, handlers := router.match(r); handlers != nil {
 		g.args = values
-		for _, handler := range router.middleware {
-			handler(g)
-			if g.responseCode != 0 {
-				goto handled
-			}
-		}
-		for _, handler := range handlers {
-			handler(g)
-
-			// don't continue down the handler chain if a response has been
-			// written
-			if g.responseCode != 0 {
-				goto handled
+		for _, handler := range append(router.middleware, handlers...) {
+			code, outputter := handler(g)
+			if code != 0 {
+				if outputter == nil {
+					if code > 0 {
+						g.WriteHeader(code)
+					}
+				} else {
+					outputter.Output(code, g)
+				}
+				break
 			}
 		}
 	} else {
-		g.Error(404, fmt.Errorf("no handler found for path %s", r.URL.Path))
+		Error(fmt.Errorf("no handler found for path %s", r.URL.Path)).Output(404, g)
 	}
 handled:
 	LogNotice("[%s] %15s %7s (%d) %s%s", fmtDuration(time.Now().Sub(now)),

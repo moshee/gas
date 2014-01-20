@@ -89,24 +89,32 @@ func testGet(t *testing.T, srv *httptest.Server, url, expected string) {
 }
 
 func TestDispatch(t *testing.T) {
-	New().Use(func(g *Gas) {
+	New().Use(func(g *Gas) (int, Outputter) {
 		g.SetData("middleware", true)
-	}).Get("/test1", func(g *Gas) {
+		return 0, nil
+	}).Get("/test1", func(g *Gas) (int, Outputter) {
 		g.Write([]byte("yes"))
-	}).Get("/test2", func(g *Gas) {
+		return -1, nil
+	}).Get("/test2", func(g *Gas) (int, Outputter) {
 		g.SetData("something", 6)
 		g.SetData("something else", "test")
-	}, func(g *Gas) {
+		return 0, nil
+	}, func(g *Gas) (int, Outputter) {
 		g.Write([]byte(g.Data("something else").(string)))
-	}).Get("/test3", func(g *Gas) {
+		return -1, nil
+	}).Get("/test3", func(g *Gas) (int, Outputter) {
 		g.SetData("test", 10)
-	}, func(g *Gas) {
+		return 0, nil
+	}, func(g *Gas) (int, Outputter) {
 		g.Write([]byte(strconv.Itoa(g.Data("test").(int))))
-	}, func(g *Gas) {
+		return -1, nil
+	}, func(g *Gas) (int, Outputter) {
 		g.Write([]byte("nope"))
-	}).Get("/test4", func(g *Gas) {
+		return -1, nil
+	}).Get("/test4", func(g *Gas) (int, Outputter) {
 		g.Write([]byte(strconv.FormatBool(g.Data("middleware").(bool))))
-	}).Get("/panic", func(g *Gas) {
+		return -1, nil
+	}).Get("/panic", func(g *Gas) (int, Outputter) {
 		panic("lol")
 	})
 
@@ -131,16 +139,16 @@ func TestDispatch(t *testing.T) {
 }
 
 func TestReroute(t *testing.T) {
-	New().Get("/reroute1", func(g *Gas) {
-		if err := g.Reroute("/reroute2", 303, map[string]string{"test": "ok"}); err != nil {
-			t.Fatal(err)
-		}
-	}).Get("/reroute2", func(g *Gas) {
+	New().Get("/reroute1", func(g *Gas) (int, Outputter) {
+		return 303, Reroute("/reroute2", map[string]string{"test": "ok"})
+	}).Get("/reroute2", func(g *Gas) (int, Outputter) {
 		var m map[string]string
 		if err := g.Recover(&m); err != nil {
 			t.Fatal(err)
+			fmt.Fprint(g, "no")
 		}
 		fmt.Fprint(g, m["test"])
+		return -1, nil
 	})
 
 	srv := httptest.NewServer(http.HandlerFunc(dispatch))
