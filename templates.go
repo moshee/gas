@@ -141,7 +141,9 @@ func HTML(path, name string, data interface{}) Outputter {
 
 func (o *templateOutputter) Output(code int, g *Gas) {
 	h := g.Header()
-	h.Set("Content-Type", "text/html; charset=utf-8")
+	if _, foundType := h["Content-Type"]; !foundType {
+		h.Set("Content-Type", "text/html; charset=utf-8")
+	}
 
 	var w io.Writer
 	if strings.Contains(g.Request.Header.Get("Accept-Encoding"), "gzip") {

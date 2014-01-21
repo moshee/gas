@@ -246,7 +246,10 @@ func JSON(data interface{}) Outputter {
 }
 
 func (o jsonOutputter) Output(code int, g *Gas) {
-	g.Header().Set("Content-Type", "application/json; charset=utf-8")
+	h := g.Header()
+	if _, foundType := h["Content-Type"]; !foundType {
+		h.Set("Content-Type", "application/json; charset=utf-8")
+	}
 	g.WriteHeader(code)
 	json.NewEncoder(g).Encode(o.data)
 }
