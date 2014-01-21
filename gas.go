@@ -90,6 +90,10 @@ type Gas struct {
 }
 
 func (g *Gas) Write(p []byte) (int, error) {
+	if g.responseCode == 0 {
+		g.responseCode = 200
+	}
+
 	return g.w.Write(p)
 }
 
