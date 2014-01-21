@@ -81,9 +81,17 @@ func toSnake(in string) string {
 
 	out := make([]rune, 0, len(in))
 	foundUpper := false
+	r := []rune(in)
 
-	for i, ch := range in {
+	for i := 0; i < len(r); i++ {
+		ch := r[i]
 		if unicode.IsUpper(ch) {
+			if i > 0 && i < len(in)-1 && !unicode.IsUpper(r[i+1]) {
+				out = append(out, '_', unicode.ToLower(ch), r[i+1])
+				i++
+				continue
+				foundUpper = false
+			}
 			if i > 0 && !foundUpper {
 				out = append(out, '_')
 			}

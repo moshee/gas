@@ -47,7 +47,7 @@ type A struct {
 
 type B struct {
 	Id               int
-	AId              int `sql:"a_id"`
+	AId              int
 	Data             float64
 	IgnoreThisPlease []*Tester4
 	Cs               []C
@@ -55,7 +55,7 @@ type B struct {
 
 type C struct {
 	Id   int
-	BId  int `sql:"b_id"`
+	BId  int
 	Data sql.NullString
 }
 
@@ -89,10 +89,13 @@ func TestCamelToSnake(t *testing.T) {
 	}
 	for _, test := range []struct{ camel, snake string }{
 		{"A", "a"},
-		{"AId", "aid"},
+		{"AId", "a_id"},
 		{"MacBookPro", "mac_book_pro"},
 		{"ABC", "abc"},
 		{"OneTwoThreeFour", "one_two_three_four"},
+		{"ServerURL", "server_url"},
+		{"DLServerURL", "dl_server_url"},
+		{"DlServerURL", "dl_server_url"},
 		{"", ""},
 	} {
 		try(test.camel, test.snake)
