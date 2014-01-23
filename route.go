@@ -282,7 +282,7 @@ func fmtDuration(d time.Duration) string {
 	case d <= time.Second:
 		return fmt.Sprintf("% 4dms", d/time.Millisecond)
 	case d <= time.Minute:
-		return fmt.Sprintf("%2.3fs", float64(d)/float64(time.Second))
+		return fmt.Sprintf("%2.2fs", float64(d)/float64(time.Second))
 	default:
 		return fmt.Sprintf("% 6s", d.String())
 	}
@@ -299,9 +299,8 @@ func fmtStack(skip, count int) *bytes.Buffer {
 		f := runtime.FuncForPC(pc)
 		path, line := f.FileLine(pc)
 		name := f.Name()
-		parent, file := filepath.Split(path)
-		parent, oneUp := filepath.Split(filepath.Clean(parent))
-		file = filepath.Join(oneUp, file)
+		oneUp := filepath.Base(filepath.Dir(path))
+		file := filepath.Join(oneUp, filepath.Base(path))
 
 		fmt.Fprintf(tw, "%2d: %s:%d\t@ 0x%x\t%s\n", i, file, line, pc, name)
 	}
