@@ -12,13 +12,11 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
-	"log"
 	"net"
 	"net/http"
 	"net/http/fcgi"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -29,13 +27,8 @@ import (
 var (
 	//flag_syncdb = flag.Bool("gas.syncdb", false, "Create database tables from registered models")
 	flag_verbosity = flag.Int("gas.loglevel", 2, "How much information to log (0=none, 1=fatal, 2=warning, 3=notice, 4=debug)")
-	flag_log       = flag.String("gas.log", "", "File to log to (log disabled for empty path)")
 	sigchan        = make(chan os.Signal, 2)
 	fcgiListener   net.Listener
-)
-
-var (
-	errNotLoggedIn = errors.New("User is not logged in.")
 )
 
 func init() {
@@ -43,23 +36,6 @@ func init() {
 
 	flag.Parse()
 	Verbosity = LogLevel(*flag_verbosity)
-
-	var err error
-
-	if *flag_log != "" {
-		logFile, err = os.OpenFile(*flag_log, os.O_CREATE|os.O_APPEND|os.O_RDWR, os.FileMode(0644))
-		if err != nil {
-			log.Fatal(err)
-			os.Exit(1)
-		}
-		logFilePath, err = filepath.Abs(*flag_log)
-		if err != nil {
-			log.Fatal(err)
-		}
-	} else {
-		logFile = os.Stdout
-	}
-	logger = log.New(logFile, "", log.LstdFlags)
 
 	if err := EnvConf(&Env, EnvPrefix); err != nil {
 		LogFatal("envconf: %v", err)

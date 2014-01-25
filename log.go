@@ -15,12 +15,7 @@ const (
 	Debug
 )
 
-var (
-	Verbosity   LogLevel = Fatal
-	logger      *log.Logger
-	logFile     *os.File
-	logFilePath string
-)
+var Verbosity LogLevel = Fatal
 
 func (l LogLevel) String() string {
 	switch l {
@@ -35,7 +30,7 @@ func (l LogLevel) String() string {
 func Log(level LogLevel, format string, args ...interface{}) {
 	if Verbosity >= level {
 		//logChan <- logMessage{level, format, args}
-		logger.Printf(level.String()+format, args...)
+		log.Printf(level.String()+format, args...)
 	}
 	if level == Fatal {
 		os.Exit(-1)
