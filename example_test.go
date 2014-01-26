@@ -20,7 +20,7 @@ func (*myUser) byUsername(n string) *myUser      { return nil }
 func ExampleRouter() {
 	// A simple "static" route.
 	loginForm := func(g *Gas) (int, Outputter) {
-		return 200, HTML("example", "login-form", nil)
+		return 200, HTML("example/login-form", nil)
 	}
 
 	// JSON REST? Sure.
@@ -48,7 +48,7 @@ func ExampleRouter() {
 	// A page behind the login wall
 	profile := func(g *Gas) (int, Outputter) {
 		user := g.Data("user").(*myUser)
-		return 200, HTML("example", "profile", user)
+		return 200, HTML("example", user)
 	}
 
 	// The router

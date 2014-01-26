@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"text/tabwriter"
 	"time"
 )
@@ -269,7 +268,7 @@ func dispatch(w http.ResponseWriter, r *http.Request) {
 	}
 handled:
 	LogNotice("[%s] %15s %7s (%d) %s%s", fmtDuration(time.Now().Sub(now)),
-		strings.Split(g.RemoteAddr, ":")[0], g.Method, g.responseCode, g.Host,
+		g.Domain(), g.Method, g.responseCode, g.Host,
 		g.URL.Path)
 }
 

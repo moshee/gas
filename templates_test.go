@@ -1,48 +1,32 @@
 package gas
 
 import (
-	"bytes"
 	"net/http"
 	"net/http/httptest"
-	"sync"
 	"testing"
 )
 
-var templateOnce sync.Once
-
-func TestExecTemplates(t *testing.T) {
-	templateOnce.Do(func() {
-		Templates = parse_templates("./testdata")
-	})
-	w := new(bytes.Buffer)
-	if err := ExecTemplate(w, "a", "index", "world"); err != nil {
-		t.Fatal(err)
-	}
-	got := string(w.Bytes())
-	exp := "Hello, world! testing!"
-	if got != exp {
-		t.Fatalf("templates: expected '%s', got '%s'\n", exp, got)
-	}
-}
-
 func TestOutputter(t *testing.T) {
-	templateOnce.Do(func() {
-		Templates = parse_templates("./testdata")
-	})
-
+	parseTemplates("testdata")
 	srv := httptest.NewServer(http.HandlerFunc(dispatch))
 	defer srv.Close()
 
 	New().Get("/htmltest", func(g *Gas) (int, Outputter) {
-		return 200, HTML("a", "index", "tester")
+		return 200, HTML("a/index", "world")
 	}).Get("/jsontest", func(g *Gas) (int, Outputter) {
 		return 200, JSON(&struct {
 			A int
 			B string
 			C bool
 		}{-203881, "asdf", true})
+	}).Get("/htmltest2", func(g *Gas) (int, Outputter) {
+		return 200, HTML("m/a/g/i/c", "# hi\n")
+	}).Get("/htmltest3", func(g *Gas) (int, Outputter) {
+		return 200, HTML("something", 123)
 	})
 
-	testGet(t, srv, "/htmltest", "Hello, tester! testing!")
+	testGet(t, srv, "/htmltest", "Hello, world! testing!")
 	testGet(t, srv, "/jsontest", `{"A":-203881,"B":"asdf","C":true}`+"\n")
+	testGet(t, srv, "/htmltest2", "<h1>hi</h1>\n")
+	testGet(t, srv, "/htmltest3", "123123123")
 }

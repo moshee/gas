@@ -12,8 +12,7 @@ var signal_funcs = map[os.Signal]func(){
 	syscall.SIGQUIT: stop,
 	syscall.SIGTERM: stop,
 	syscall.SIGUSR1: func() {
-		ts := parse_templates(template_dir)
-		Templates = ts
+		parseTemplates(templateDir)
 		LogNotice("Templates reloaded.")
 	},
 }

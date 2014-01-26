@@ -18,7 +18,6 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
-	"strings"
 	"time"
 
 	"code.google.com/p/go.crypto/sha3"
@@ -213,8 +212,20 @@ func (g *Gas) Cookie(name string) (*http.Cookie, error) {
 	return nil, errBadMac
 }
 
+// return the remote address without the port number
 func (g *Gas) Domain() string {
-	return strings.SplitN(g.Host, ":", 2)[0]
+	//return g.Host
+	for i := len(g.Host) - 1; i > 0; i-- {
+		ch := g.Host[i]
+		if ch > '0' && ch < '9' {
+			continue
+		} else if ch == ':' {
+			return g.Host[:i]
+		} else {
+			break
+		}
+	}
+	return g.Host
 }
 
 type jsonOutputter struct {
@@ -328,7 +339,7 @@ func Ignition(srv *http.Server) {
 
 	go handle_signals(sigchan)
 
-	Templates = parse_templates("./templates")
+	parseTemplates(templateDir)
 
 	now := time.Now().Format("2006-01-02 15:04")
 	LogNotice("=== Session: %s =========================", now)

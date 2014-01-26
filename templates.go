@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -21,11 +21,10 @@ import (
 // enclosed in a `{{ define "name" }} … {{ end }}` so that they can be referred to by
 // the other templates.
 var (
-	Templates       map[string]*template.Template
-	templateLock    sync.RWMutex
-	template_dir    = "templates"
-	templateFuncmap map[string]template.FuncMap
-	globalFuncmap   = template.FuncMap{
+	Templates     map[string]*template.Template
+	templateLock  sync.RWMutex
+	templateDir   = "templates"
+	globalFuncmap = template.FuncMap{
 		"string": func(b []byte) string {
 			return string(b)
 		},
@@ -54,10 +53,6 @@ var (
 	}
 )
 
-func init() {
-	templateFuncmap = make(map[string]template.FuncMap)
-}
-
 // Add a function to the template func map which will be accessible within the
 // templates. TemplateFunc must be called before Ignition, or else it will have
 // no effect.
@@ -68,14 +63,8 @@ func init() {
 //     "markdown":  func(b []byte) template.HTML
 //     "smarkdown": func(s string) (template.HTML, error)
 //     "datetime":  func(t time.Time) string
-func TemplateFunc(template_name, name string, f interface{}) {
-	funcmap, ok := templateFuncmap[template_name]
-	if !ok {
-		funcmap = make(template.FuncMap)
-		templateFuncmap[template_name] = funcmap
-	}
-
-	funcmap[name] = f
+func TemplateFunc(name string, f interface{}) {
+	globalFuncmap[name] = f
 }
 
 func markdown(in []byte) template.HTML {
@@ -89,42 +78,47 @@ func markdown(in []byte) template.HTML {
 	return template.HTML(md.Markdown(in, r, ext))
 }
 
-func parse_templates(base string) map[string]*template.Template {
+// recursively parse templates
+func parseTemplates(base string) {
 	templateLock.Lock()
 	defer templateLock.Unlock()
 
-	ts := make(map[string]*template.Template)
-	fis, err := ioutil.ReadDir(base)
-	if err != nil {
-		LogFatal("Couldn't open templates directory: %v\n", err)
-	}
-	for _, fi := range fis {
+	Templates = make(map[string]*template.Template)
+
+	err := filepath.Walk(base, func(path string, fi os.FileInfo, err error) error {
 		if !fi.IsDir() {
-			continue
+			return nil
 		}
-
-		name := fi.Name()
-		LogDebug("found template dir '%s'", name)
-
-		localFuncmap, ok := templateFuncmap[name]
-		if !ok {
-			localFuncmap = make(template.FuncMap)
-		}
-
-		for k, v := range globalFuncmap {
-			localFuncmap[k] = v
-		}
-
-		t, err := template.New(name).
-			Funcs(template.FuncMap(localFuncmap)).
-			ParseGlob(filepath.Join(base, name, "*.tmpl"))
 		if err != nil {
-			LogWarning("failed to parse templates in %s: %v\n", name, err)
+			return err
 		}
 
-		ts[name] = t
+		glob := filepath.Join(path, "*.tmpl")
+		LogDebug("adding templates in %s", glob)
+		files, err := filepath.Glob(glob)
+		if err != nil {
+			return err
+		}
+
+		if len(files) == 0 {
+			LogNotice("no template files in %s", path)
+			return nil
+		}
+
+		t, err := template.New(path).Funcs(globalFuncmap).ParseFiles(files...)
+		if err != nil {
+			return err
+		}
+
+		name := strings.TrimPrefix(path, base)
+		name = strings.TrimLeftFunc(name, func(c rune) bool { return c == filepath.Separator })
+		Templates[name] = t
+		return nil
+	})
+
+	if err != nil {
+		LogFatal("templates: %v", err)
 	}
-	return ts
 }
 
 type templateOutputter struct {
@@ -133,9 +127,24 @@ type templateOutputter struct {
 	data interface{}
 }
 
-// HTML returns an outputter that will render an HTML template named by path
-// and name, using data as the context, to the response.
-func HTML(path, name string, data interface{}) Outputter {
+// HTML returns an outputter that will render the named HTML template with
+// package html/template, with data as the context, to the response.
+// Templates are named by their path and then their defined name within the
+// template, e.g. a template in ./templates/foo/bar.tmpl defined with name
+// "quux" will be called "foo/bar/quux".
+func HTML(path string, data interface{}) Outputter {
+	var (
+		i    = strings.LastIndex(path, "/")
+		name string
+	)
+	if i < 0 {
+		name = path
+		path = ""
+	} else {
+		name = path[i+1:]
+		path = path[:i]
+	}
+
 	return &templateOutputter{path, name, data}
 }
 
@@ -204,22 +213,4 @@ func (o *templateOutputter) Output(code int, g *Gas) {
 			return
 		}
 	}
-}
-
-// Render a template anywhere.
-func ExecTemplate(w io.Writer, path, name string, data interface{}) error {
-	templateLock.RLock()
-	defer templateLock.RUnlock()
-
-	group := Templates[path]
-	if group == nil {
-		return fmt.Errorf("gas: ExecTemplate: template group '%s' not found", path)
-	}
-
-	t := group.Lookup(name)
-	if t == nil {
-		return fmt.Errorf("gas: ExecTemplate: named template '%s' not found in group '%s'", name, path)
-	}
-
-	return t.Execute(w, data)
 }
