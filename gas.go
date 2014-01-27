@@ -152,7 +152,7 @@ func (o errorOutputter) Output(code int, g *Gas) {
 		Host:  g.Host,
 		Stack: fmtStack(3, 10).String(),
 	}
-	(&templateOutputter{"errors", s, err}).Output(code, g)
+	(&templateOutputter{templatePath{"errors", s}, nil, err}).Output(code, g)
 }
 
 // Error returns an Outputter that will serve up an error page from
