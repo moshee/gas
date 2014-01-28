@@ -12,12 +12,14 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/fcgi"
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"time"
 
 	"code.google.com/p/go.crypto/sha3"
@@ -27,7 +29,6 @@ var (
 	//flag_syncdb = flag.Bool("gas.syncdb", false, "Create database tables from registered models")
 	flag_verbosity = flag.Int("gas.loglevel", 2, "How much information to log (0=none, 1=fatal, 2=warning, 3=notice, 4=debug)")
 	sigchan        = make(chan os.Signal, 2)
-	fcgiListener   net.Listener
 )
 
 func init() {
@@ -217,7 +218,7 @@ func (g *Gas) Domain() string {
 	//return g.Host
 	for i := len(g.Host) - 1; i > 0; i-- {
 		ch := g.Host[i]
-		if ch > '0' && ch < '9' {
+		if ch >= '0' && ch <= '9' {
 			continue
 		} else if ch == ':' {
 			return g.Host[:i]
@@ -294,18 +295,12 @@ func (o *rerouteOutputter) Output(code int, g *Gas) {
 	redirectOutputter(o.path).Output(code, g)
 }
 
-func handle_signals(c chan os.Signal) {
+func handleSignals(c chan os.Signal) {
 	for {
 		if f := signal_funcs[<-c]; f != nil {
 			f()
 		}
 	}
-}
-
-// Call before Ignition with a net.Listener to use FastCGI instead of the
-// regular server
-func UseFastCGI(l net.Listener) {
-	fcgiListener = l
 }
 
 func initThings() {
@@ -326,6 +321,8 @@ func initThings() {
 
 // Start the server. Should be called after everything else is set up.
 func Ignition(srv *http.Server) {
+	now := time.Now()
+	LogNotice("=== Session: %s =========================", now.Format("2006-01-02 13:04"))
 	initThings()
 
 	defer func() {
@@ -337,18 +334,34 @@ func Ignition(srv *http.Server) {
 		}
 	}()
 
-	go handle_signals(sigchan)
-
+	go handleSignals(sigchan)
 	parseTemplates(templateDir)
+	port := ":" + strconv.Itoa(Env.Port)
 
-	now := time.Now().Format("2006-01-02 15:04")
-	LogNotice("=== Session: %s =========================", now)
+	LogDebug("Initialization took %v", time.Now().Sub(now))
 
-	if fcgiListener != nil {
-		LogFatal("FastCGI: %v", fcgi.Serve(fcgiListener, http.HandlerFunc(dispatch)))
+	if Env.FastCGI != "" {
+		parts := strings.SplitN(Env.FastCGI, ":", 2)
+		network, addr := parts[0], parts[1]
+		var (
+			l   net.Listener
+			err error
+			s   = fmt.Sprintf("%s:%s", network, addr)
+		)
+
+		if strings.HasPrefix(network, "unix") {
+			l, err = net.ListenUnix(network, &net.UnixAddr{addr, network})
+		} else {
+			l, err = net.Listen(network, addr+port)
+			s += port
+		}
+		if err != nil {
+			LogFatal("gas: fcgi: %v", err)
+		}
+
+		LogNotice("FastCGI listening on %s", s)
+		LogFatal("FastCGI: %v", fcgi.Serve(l, http.HandlerFunc(dispatch)))
 	} else {
-		port := ":" + strconv.Itoa(Env.Port)
-
 		if srv == nil {
 			srv = &http.Server{
 				ReadTimeout:  60 * time.Second,
@@ -358,6 +371,8 @@ func Ignition(srv *http.Server) {
 
 		srv.Addr = port
 		srv.Handler = http.HandlerFunc(dispatch)
+
+		LogNotice("Server listening on port %d", Env.Port)
 		LogFatal("Server: %v", srv.ListenAndServe())
 	}
 }

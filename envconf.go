@@ -36,6 +36,18 @@ var Env struct {
 	// The port for the server to listen on
 	Port int `default:"80"`
 
+	// When set, the server will listen using FastCGI on the named network,
+	// which is specified as network:address, network being "tcp", "unix", etc.
+	// and address being the address or socket file. same requirements as for
+	// net.Listen, except that the port number should be left to the Port
+	// environment variable; it is an error to include the port in the address
+	// here.
+	//
+	// Examples:
+	//     GAS_FAST_CGI=unix:/tmp/website.sock
+	//     GAS_FAST_CGI=tcp:[::1]
+	FastCGI string
+
 	// HASH_COST is the cost passed into the scrypt hash function. It is
 	// represented as the power of 2 (aka HASH_COST=9 means 2<<9 iterations).
 	// It should be set as desired in the main() function of the importing
