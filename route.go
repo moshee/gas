@@ -208,7 +208,7 @@ func dispatch(w http.ResponseWriter, r *http.Request) {
 				err = fmt.Errorf("%v", nuke)
 			}
 			g := &Gas{w: w, Request: r}
-			Error(err).Output(500, g)
+			g.Error(err).Output(500, g)
 		}
 	}()
 	defer r.Body.Close()
@@ -245,7 +245,7 @@ func dispatch(w http.ResponseWriter, r *http.Request) {
 		router = default_router
 	}
 	if router == nil {
-		Error(fmt.Errorf("no router for domain: %s", g.Domain())).Output(404, g)
+		g.Error(fmt.Errorf("no router for domain: %s", g.Domain())).Output(404, g)
 		goto handled
 	}
 	if values, handlers := router.match(r); handlers != nil {
@@ -264,7 +264,7 @@ func dispatch(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	} else {
-		Error(fmt.Errorf("no handler found for path %s", r.URL.Path)).Output(404, g)
+		g.Error(fmt.Errorf("no handler found for path %s", r.URL.Path)).Output(404, g)
 	}
 handled:
 	LogNotice("[%s] %15s %7s (%d) %s%s", fmtDuration(time.Now().Sub(now)),

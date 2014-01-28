@@ -134,6 +134,7 @@ func (o OutputFunc) Output(code int, g *Gas) {
 	o(code, g)
 }
 
+// ErrorInfo represents an error that occurred in a particular request handler.
 type ErrorInfo struct {
 	Err   string
 	Path  string
@@ -141,28 +142,26 @@ type ErrorInfo struct {
 	Stack string
 }
 
-type errorOutputter struct {
-	error
+func (o *ErrorInfo) Output(code int, g *Gas) {
+	s := strconv.Itoa(code)
+	(&templateOutputter{templatePath{"errors", s}, nil, o}).Output(code, g)
 }
 
-func (o errorOutputter) Output(code int, g *Gas) {
-	s := strconv.Itoa(code)
-	err := &ErrorInfo{
-		Err:   o.error.Error(),
+// Error returns an Outputter that will serve up an error page from
+// templates/errors. Templates in that directory should be defined under the
+// HTTP status code they correspond to, e.g.
+//
+//     {{ define "404" }} ... {{ end }}
+//
+// will provide the template for a 404 error. The template will be rendered
+// with a *ErrorInfo as the data binding.
+func (g *Gas) Error(err error) Outputter {
+	return &ErrorInfo{
+		Err:   err.Error(),
 		Path:  g.URL.Path,
 		Host:  g.Host,
 		Stack: fmtStack(3, 10).String(),
 	}
-	(&templateOutputter{templatePath{"errors", s}, nil, err}).Output(code, g)
-}
-
-// Error returns an Outputter that will serve up an error page from
-// /templates/errors. Templates in that directory should have the naming scheme
-// `<code>.tmpl`, where <code> is the numeric HTTP status code (such as
-// `404.tmpl`). The provided error is supplied as the template context in a
-// gas.ErrorInfo value.
-func Error(err error) Outputter {
-	return errorOutputter{err}
 }
 
 // SetCookie sets a cookie in the response, adding an HMAC digest to the end of
@@ -279,7 +278,7 @@ func (o *rerouteOutputter) Output(code int, g *Gas) {
 
 		// TODO: do we want to ignore an encode error here?
 		if err != nil {
-			Error(err).Output(code, g)
+			g.Error(err).Output(code, g)
 			return
 		}
 
@@ -350,6 +349,7 @@ func Ignition(srv *http.Server) {
 		)
 
 		if strings.HasPrefix(network, "unix") {
+			os.Remove(addr)
 			l, err = net.ListenUnix(network, &net.UnixAddr{addr, network})
 		} else {
 			l, err = net.Listen(network, addr+port)
