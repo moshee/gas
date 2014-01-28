@@ -21,9 +21,18 @@ import (
 // enclosed in a `{{ define "name" }} … {{ end }}` so that they can be referred to by
 // the other templates.
 var (
-	Templates     map[string]*template.Template
-	templateLock  sync.RWMutex
-	templateDir   = "templates"
+	Templates    map[string]*template.Template
+	templateLock sync.RWMutex
+	templateDir  = "templates"
+
+	// The blackfriday extensions used to render markdown
+	MarkdownExts = md.EXTENSION_NO_INTRA_EMPHASIS | md.EXTENSION_TABLES |
+		md.EXTENSION_FENCED_CODE | md.EXTENSION_STRIKETHROUGH |
+		md.EXTENSION_FOOTNOTES
+
+		// The blackfriday renderer used to render markdown
+	MarkdownRenderer = md.HtmlRenderer(md.HTML_GITHUB_BLOCKCODE|md.HTML_USE_SMARTYPANTS, "", "")
+
 	globalFuncmap = template.FuncMap{
 		"string": func(b []byte) string {
 			return string(b)
@@ -50,8 +59,8 @@ var (
 		"datetime": func(t time.Time) string {
 			return t.Format("2006-01-02T15:04:05Z")
 		},
-		"content": func() error {
-			return errors.New("nope")
+		"content": func() (string, error) {
+			return "", errors.New("content template func used from non-layout context")
 		},
 	}
 )
@@ -70,18 +79,12 @@ func TemplateFunc(name string, f interface{}) {
 	globalFuncmap[name] = f
 }
 
+// return safe HTML of rendered markdown
 func markdown(in []byte) template.HTML {
-	html := md.HTML_GITHUB_BLOCKCODE | md.HTML_USE_SMARTYPANTS
-	ext := md.EXTENSION_NO_INTRA_EMPHASIS |
-		md.EXTENSION_TABLES |
-		md.EXTENSION_FENCED_CODE |
-		md.EXTENSION_STRIKETHROUGH |
-		md.EXTENSION_FOOTNOTES
-	r := md.HtmlRenderer(html, "", "")
-	return template.HTML(md.Markdown(in, r, ext))
+	return template.HTML(md.Markdown(in, MarkdownRenderer, MarkdownExts))
 }
 
-// recursively parse templates
+// recursively parse templates in a directory
 func parseTemplates(base string) {
 	templateLock.Lock()
 	defer templateLock.Unlock()
@@ -124,11 +127,13 @@ func parseTemplates(base string) {
 	}
 }
 
+// represents a template location (containing path and defined name)
 type templatePath struct {
 	path string
 	name string
 }
 
+// An outputter that outputs HTML templates
 type templateOutputter struct {
 	templatePath
 	layouts []templatePath
@@ -151,12 +156,18 @@ func parseTemplatePath(path string) templatePath {
 }
 
 // HTML returns an outputter that will render the named HTML template with
-// package html/template, with data as the context, to the response. Layouts
-// are applied in order outside-in, e.g. layout1(layout2(content(data))) and
-// are each executed with the top level data binding.
-// Templates are named by their path and then their defined name within the
-// template, e.g. a template in ./templates/foo/bar.tmpl defined with name
-// "quux" will be called "foo/bar/quux".
+// package html/template, with data as the context, to the response. Templates
+// are named by their path and then their defined name within the template,
+// e.g. a template in ./templates/foo/bar.tmpl defined with name "quux" will be
+// called "foo/bar/quux".
+//
+// Layouts are applied in order outside-in, e.g.
+// layout1(layout2(content(data))) and are each executed with the top level
+// data binding. Each layout has access to a "content" function which will
+// instruct the next layout or the content to be rendered in its place. The
+// io.Writer is injected into the function's scope in a closure, so minimal
+// buffering takes place. It is an error to call the "content" function in a
+// non-layout template.
 func HTML(path string, data interface{}, layoutPaths ...string) Outputter {
 	var layouts []templatePath
 	if len(layoutPaths) > 0 {
