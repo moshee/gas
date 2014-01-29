@@ -20,11 +20,6 @@ func TestEnvConf(t *testing.T) {
 		env[name] = os.Getenv(name)
 	}
 
-	os.Setenv("GAS_DB_NAME", "")
-	if err := EnvConf(&Env, EnvPrefix); err == nil {
-		t.Error("Expected envconf error 'required parameter not given', got nothing")
-	}
-
 	os.Setenv("GAS_DB_NAME", env["GAS_DB_NAME"])
 	os.Setenv("GAS_COOKIE_AUTH_KEY", "asdfasdf")
 	os.Setenv("GAS_PORT", "abc")
@@ -46,7 +41,7 @@ func TestEnvConf(t *testing.T) {
 	}
 
 	conf := struct {
-		Bool     bool
+		Bool     bool `envconf:"required"`
 		String   string
 		Int      int
 		Int64    int64
@@ -83,6 +78,11 @@ func TestEnvConf(t *testing.T) {
 
 	if err := EnvConf(&conf, prefix); err != nil {
 		t.Errorf("Expected no error, got %v", err)
+	}
+
+	os.Setenv("GAS_TEST_BOOL", "")
+	if err := EnvConf(&conf, prefix); err == nil {
+		t.Error("Expected envconf error 'required parameter not given', got nothing")
 	}
 
 	assertEqual(conf.Bool, true)

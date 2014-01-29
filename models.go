@@ -56,6 +56,13 @@ func InitDB() error {
 	if DB != nil {
 		return nil
 	}
+	if Env.DbName == "" {
+		return errors.New(EnvPrefix + "DB_NAME is not set")
+	}
+
+	if Env.DbParams == "" {
+		return errors.New(EnvPrefix + "DB_PARAMS is not set")
+	}
 
 	var err error
 	DB, err = sql.Open(Env.DbName, Env.DbParams)

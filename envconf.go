@@ -14,8 +14,8 @@ import (
 // They may be overridden during runtime, but note that some are only used on
 // startup (after init() and before Ignition).
 var Env struct {
-	DbName   string `envconf:"required"`
-	DbParams string `envconf:"required"`
+	DbName   string
+	DbParams string
 
 	// Maximum age of a cookie before it goes stale. Syntax specified as in
 	// time.ParseDuration (maximum unit is hours 'h')

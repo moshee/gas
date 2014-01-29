@@ -128,24 +128,6 @@ func (g *Gas) Recover(dest interface{}) error {
 	return dec.Decode(dest)
 }
 
-type OutputFunc func(code int, g *Gas)
-
-func (o OutputFunc) Output(code int, g *Gas) {
-	o(code, g)
-}
-
-// ErrorInfo represents an error that occurred in a particular request handler.
-type ErrorInfo struct {
-	Err   string
-	Path  string
-	Host  string
-	Stack string
-}
-
-func (o *ErrorInfo) Output(code int, g *Gas) {
-	s := strconv.Itoa(code)
-	(&templateOutputter{templatePath{"errors", s}, nil, o}).Output(code, g)
-}
 
 // Error returns an Outputter that will serve up an error page from
 // templates/errors. Templates in that directory should be defined under the
@@ -228,12 +210,28 @@ func (g *Gas) Domain() string {
 	return g.Host
 }
 
-type jsonOutputter struct {
-	data interface{}
+type OutputFunc func(code int, g *Gas)
+
+func (o OutputFunc) Output(code int, g *Gas) {
+	o(code, g)
 }
 
-func JSON(data interface{}) Outputter {
-	return jsonOutputter{data}
+// ErrorInfo represents an error that occurred in a particular request handler.
+type ErrorInfo struct {
+	Err   string
+	Path  string
+	Host  string
+	Stack string
+}
+
+func (o *ErrorInfo) Output(code int, g *Gas) {
+	s := strconv.Itoa(code)
+	(&templateOutputter{templatePath{"errors", s}, nil, o}).Output(code, g)
+}
+
+
+type jsonOutputter struct {
+	data interface{}
 }
 
 func (o jsonOutputter) Output(code int, g *Gas) {
@@ -245,27 +243,23 @@ func (o jsonOutputter) Output(code int, g *Gas) {
 	json.NewEncoder(g).Encode(o.data)
 }
 
-type redirectOutputter string
-
-func Redirect(path string) Outputter {
-	return redirectOutputter(path)
+func JSON(data interface{}) Outputter {
+	return jsonOutputter{data}
 }
+
+type redirectOutputter string
 
 func (o redirectOutputter) Output(code int, g *Gas) {
 	http.Redirect(g, g.Request, string(o), code)
 }
 
+func Redirect(path string) Outputter {
+	return redirectOutputter(path)
+}
+
 type rerouteOutputter struct {
 	path string
 	data interface{}
-}
-
-// Reroute will perform a redirect, but first place a cookie on the client
-// containing an encoding/gob blob encoded from the data passed in. The
-// recieving handler should then check for the RerouteInfo on the request, and
-// handle the special case if necessary.
-func Reroute(path string, data interface{}) Outputter {
-	return &rerouteOutputter{path, data}
 }
 
 func (o *rerouteOutputter) Output(code int, g *Gas) {
@@ -292,6 +286,14 @@ func (o *rerouteOutputter) Output(code int, g *Gas) {
 	}, cookieVal)
 
 	redirectOutputter(o.path).Output(code, g)
+}
+
+// Reroute will perform a redirect, but first place a cookie on the client
+// containing an encoding/gob blob encoded from the data passed in. The
+// recieving handler should then check for the RerouteInfo on the request, and
+// handle the special case if necessary.
+func Reroute(path string, data interface{}) Outputter {
+	return &rerouteOutputter{path, data}
 }
 
 func handleSignals(c chan os.Signal) {
