@@ -128,7 +128,6 @@ func (g *Gas) Recover(dest interface{}) error {
 	return dec.Decode(dest)
 }
 
-
 // Error returns an Outputter that will serve up an error page from
 // templates/errors. Templates in that directory should be defined under the
 // HTTP status code they correspond to, e.g.
@@ -197,12 +196,12 @@ func (g *Gas) Cookie(name string) (*http.Cookie, error) {
 // return the remote address without the port number
 func (g *Gas) Domain() string {
 	//return g.Host
-	for i := len(g.Host) - 1; i > 0; i-- {
+	for i := len(g.RemoteAddr) - 1; i > 0; i-- {
 		ch := g.Host[i]
 		if ch >= '0' && ch <= '9' {
 			continue
 		} else if ch == ':' {
-			return g.Host[:i]
+			return g.RemoteAddr[:i]
 		} else {
 			break
 		}
@@ -228,7 +227,6 @@ func (o *ErrorInfo) Output(code int, g *Gas) {
 	s := strconv.Itoa(code)
 	(&templateOutputter{templatePath{"errors", s}, nil, o}).Output(code, g)
 }
-
 
 type jsonOutputter struct {
 	data interface{}
@@ -323,7 +321,6 @@ func initThings() {
 // Start the server. Should be called after everything else is set up.
 func Ignition(srv *http.Server) {
 	now := time.Now()
-	LogNotice("=== Session: %s =========================", now.Format("2006-01-02 13:04"))
 	initThings()
 
 	defer func() {
@@ -340,6 +337,7 @@ func Ignition(srv *http.Server) {
 	port := ":" + strconv.Itoa(Env.Port)
 
 	LogDebug("Initialization took %v", time.Now().Sub(now))
+	LogNotice("=== Session: %s =========================", now.Format("2006-01-02 13:04"))
 
 	if Env.FastCGI != "" {
 		parts := strings.SplitN(Env.FastCGI, ":", 2)
