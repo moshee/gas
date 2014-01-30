@@ -193,22 +193,6 @@ func (g *Gas) Cookie(name string) (*http.Cookie, error) {
 	return nil, errBadMac
 }
 
-// return the remote address without the port number
-func (g *Gas) Domain() string {
-	//return g.Host
-	for i := len(g.RemoteAddr) - 1; i > 0; i-- {
-		ch := g.Host[i]
-		if ch >= '0' && ch <= '9' {
-			continue
-		} else if ch == ':' {
-			return g.RemoteAddr[:i]
-		} else {
-			break
-		}
-	}
-	return g.Host
-}
-
 type OutputFunc func(code int, g *Gas)
 
 func (o OutputFunc) Output(code int, g *Gas) {
@@ -392,4 +376,19 @@ func hmacSum(plaintext, key, b []byte) []byte {
 	mac := hmac.New(sha3.NewKeccak256, key)
 	mac.Write(plaintext)
 	return mac.Sum(b)
+}
+
+// return the remote address without the port number
+func addrHost(addr string) string {
+	for i := len(addr) - 1; i > 0; i-- {
+		ch := addr[i]
+		if ch >= '0' && ch <= '9' {
+			continue
+		} else if ch == ':' {
+			return addr[:i]
+		} else {
+			break
+		}
+	}
+	return addr
 }

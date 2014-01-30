@@ -240,12 +240,13 @@ func dispatch(w http.ResponseWriter, r *http.Request) {
 		g.SetCookie(reroute, nil)
 	}
 
-	router := routers[g.Domain()]
+	host := addrHost(g.Host)
+	router := routers[host]
 	if router == nil {
 		router = default_router
 	}
 	if router == nil {
-		g.Error(fmt.Errorf("no router for domain: %s", g.Domain())).Output(404, g)
+		g.Error(fmt.Errorf("no router for domain: %s", host)).Output(404, g)
 		goto handled
 	}
 	if values, handlers := router.match(r); handlers != nil {
@@ -266,10 +267,10 @@ func dispatch(w http.ResponseWriter, r *http.Request) {
 	} else {
 		g.Error(fmt.Errorf("no handler found for path %s", r.URL.Path)).Output(404, g)
 	}
+
 handled:
 	LogNotice("[%s] %15s %7s (%d) %s%s", fmtDuration(time.Now().Sub(now)),
-		g.Domain(), g.Method, g.responseCode, g.Host,
-		g.URL.Path)
+		addrHost(g.RemoteAddr), g.Method, g.responseCode, host, g.URL.Path)
 }
 
 func fmtDuration(d time.Duration) string {

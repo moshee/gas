@@ -156,6 +156,24 @@ func TestReroute(t *testing.T) {
 	testGet(t, srv, "/reroute1", "ok")
 }
 
+func TestAddrHost(t *testing.T) {
+	tests := map[string]string{
+		"127.0.0.1:12341":     "127.0.0.1",
+		"localhost:3454":      "localhost",
+		"us.dl.ktkr.us":       "us.dl.ktkr.us",
+		"53.261.66.12:994":    "53.261.66.12",
+		"[fe80:2001::1]:6642": "[fe80:2001::1]",
+		"www.google.com:80":   "www.google.com",
+	}
+
+	for in, out := range tests {
+		got := addrHost(in)
+		if got != out {
+			t.Errorf("addrHost: '%s': expected '%s', got '%s'", in, out, got)
+		}
+	}
+}
+
 type Bench struct {
 	route *route
 	url   string
