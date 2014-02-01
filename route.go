@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -240,7 +241,7 @@ func dispatch(w http.ResponseWriter, r *http.Request) {
 		g.SetCookie(reroute, nil)
 	}
 
-	host := addrHost(g.Host)
+	host, _, _ := net.SplitHostPort(g.Host)
 	router := routers[host]
 	if router == nil {
 		router = default_router
@@ -269,8 +270,9 @@ func dispatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 handled:
+	remote, _, _ := net.SplitHostPort(g.RemoteAddr)
 	LogNotice("[%s] %15s %7s (%d) %s%s", fmtDuration(time.Now().Sub(now)),
-		addrHost(g.RemoteAddr), g.Method, g.responseCode, host, g.URL.Path)
+		remote, g.Method, g.responseCode, host, g.URL.Path)
 }
 
 func fmtDuration(d time.Duration) string {

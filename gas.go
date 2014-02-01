@@ -377,18 +377,3 @@ func hmacSum(plaintext, key, b []byte) []byte {
 	mac.Write(plaintext)
 	return mac.Sum(b)
 }
-
-// return the remote address without the port number
-func addrHost(addr string) string {
-	for i := len(addr) - 1; i > 0; i-- {
-		ch := addr[i]
-		if ch >= '0' && ch <= '9' {
-			continue
-		} else if ch == ':' {
-			return addr[:i]
-		} else {
-			break
-		}
-	}
-	return addr
-}
