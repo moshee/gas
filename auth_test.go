@@ -132,8 +132,10 @@ func TestAuth(t *testing.T) {
 	testAuth(t, testPass)
 
 	t.Log("Testing FS session store")
-	tmp, err := ioutil.TempDir("", "GAS_TEST")
-	s := &FileStore{Root: tmp}
+	s, err := NewFileStore()
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer s.Destroy()
 	UseSessionStore(s)
 	testAuth(t, testPass)

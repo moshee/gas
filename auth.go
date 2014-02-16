@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -90,6 +91,14 @@ func (s *DBStore) Update(id []byte) error {
 func (s *DBStore) Delete(id []byte) error {
 	_, err := DB.Exec("DELETE FROM "+s.Table+" WHERE id = $1", id)
 	return err
+}
+
+func NewFileStore() (*FileStore, error) {
+	tmp, err := ioutil.TempDir("", "gas-sessions")
+	if err != nil {
+		return nil, err
+	}
+	return &FileStore{Root: tmp}, nil
 }
 
 type FileStore struct {
