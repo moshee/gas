@@ -84,7 +84,8 @@ func (s *DBStore) Read(id []byte) (*Session, error) {
 }
 
 func (s *DBStore) Update(id []byte) error {
-	_, err := DB.Exec("UPDATE " + s.Table + " SET expires = now() + '7d'")
+	exp := time.Now().Add(Env.MaxCookieAge)
+	_, err := DB.Exec("UPDATE "+s.Table+" SET expires = $1", exp)
 	return err
 }
 
@@ -143,14 +144,39 @@ func (s *FileStore) Read(id []byte) (*Session, error) {
 
 	sess := new(Session)
 	err = json.NewDecoder(f).Decode(sess)
+	if err != nil {
+		return nil, err
+	}
+
+	if time.Now().After(sess.Expires) {
+		return nil, errCookieExpired
+	}
 	return sess, err
 }
 
 func (s *FileStore) Update(id []byte) error {
 	s.Lock()
 	defer s.Unlock()
+
 	now := time.Now()
-	return os.Chtimes(s.Path(id), now, now)
+	sess := new(Session)
+	path := s.Path(id)
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	err = json.NewDecoder(f).Decode(sess)
+	f.Close()
+	if err != nil {
+		return err
+	}
+	f, err = os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, os.FileMode(0600))
+	if err != nil {
+		return err
+	}
+	sess.Expires = now.Add(Env.MaxCookieAge)
+	err = json.NewEncoder(f).Encode(sess)
+	return err
 }
 
 func (s *FileStore) Delete(id []byte) error {
