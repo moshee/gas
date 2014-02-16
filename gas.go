@@ -348,8 +348,8 @@ func Ignition(srv *http.Server) {
 	} else {
 		if srv == nil {
 			srv = &http.Server{
-				ReadTimeout:  60 * time.Second,
-				WriteTimeout: 10 * time.Second,
+			//ReadTimeout:  60 * time.Second,
+			//WriteTimeout: 10 * time.Second,
 			}
 		}
 

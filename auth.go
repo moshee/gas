@@ -5,8 +5,12 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
+	"sync"
 	"time"
 
 	"code.google.com/p/go.crypto/scrypt"
@@ -18,6 +22,7 @@ var (
 	errCookieExpired = errors.New("Your session has expired. Please log in again.")
 	errBadMac        = errors.New("HMAC digests don't match")
 	hmacKeys         [][]byte
+	store            SessionStore
 )
 
 // keccak256
@@ -42,27 +47,107 @@ func NewSession(username string) []byte {
 	return sessid
 }
 
-func createSession(id []byte, expires time.Time, username string) error {
-	_, err := DB.Exec("INSERT INTO "+Env.SessTable+" VALUES ( $1, $2, $3 )",
+// UseSessionStore instructs the package to use the given store to store
+// sessions. Must be called if one wishes to use sessions. Must be called
+// during app init, not during runtime.
+func UseSessionStore(s SessionStore) {
+	store = s
+}
+
+// SessionStore is the interface that is satisfied by backing stores for user
+// sessions. It must be safe for concurrent access.
+type SessionStore interface {
+	Create(id []byte, expires time.Time, username string) error
+	Read(id []byte) (*Session, error)
+	Update(id []byte) error
+	Delete(id []byte) error
+}
+
+// DBStore is a session store that stores sessions in a database table.
+type DBStore struct {
+	// The name of the table.
+	Table string
+}
+
+func (s *DBStore) Create(id []byte, expires time.Time, username string) error {
+	_, err := DB.Exec("INSERT INTO "+s.Table+" VALUES ( $1, $2, $3 )",
 		id, expires, username)
 
 	return err
 }
 
-func readSession(id []byte) (*Session, error) {
+func (s *DBStore) Read(id []byte) (*Session, error) {
 	sess := new(Session)
-	err := Query(sess, "SELECT * FROM "+Env.SessTable+" WHERE id = $1", id)
+	err := Query(sess, "SELECT * FROM "+s.Table+" WHERE id = $1", id)
 	return sess, err
 }
 
-func updateSession(id []byte) error {
-	_, err := DB.Exec("UPDATE " + Env.SessTable + " SET expires = now() + '7d'")
+func (s *DBStore) Update(id []byte) error {
+	_, err := DB.Exec("UPDATE " + s.Table + " SET expires = now() + '7d'")
 	return err
 }
 
-func deleteSession(id []byte) error {
-	_, err := DB.Exec("DELETE FROM "+Env.SessTable+" WHERE id = $1", id)
+func (s *DBStore) Delete(id []byte) error {
+	_, err := DB.Exec("DELETE FROM "+s.Table+" WHERE id = $1", id)
 	return err
+}
+
+type FileStore struct {
+	Root string
+	sync.RWMutex
+}
+
+func (s *FileStore) Path(id []byte) string {
+	return filepath.Join(s.Root, base64.URLEncoding.EncodeToString(id))
+}
+
+func (s *FileStore) Destroy() {
+	os.RemoveAll(s.Root)
+}
+
+func (s *FileStore) Create(id []byte, expires time.Time, username string) error {
+	s.Lock()
+	defer s.Unlock()
+	err := os.MkdirAll(s.Root, os.FileMode(0700))
+	if err != nil {
+		return err
+	}
+	f, err := os.OpenFile(s.Path(id), os.O_CREATE|os.O_EXCL|os.O_WRONLY, os.FileMode(0600))
+	if err != nil {
+		return err
+	}
+	sess := &Session{id, expires, username}
+	err = json.NewEncoder(f).Encode(sess)
+	if err != nil {
+		return err
+	}
+	return f.Close()
+}
+
+func (s *FileStore) Read(id []byte) (*Session, error) {
+	s.RLock()
+	defer s.RUnlock()
+	f, err := os.Open(s.Path(id))
+	if err != nil {
+		return nil, err
+	}
+
+	sess := new(Session)
+	err = json.NewDecoder(f).Decode(sess)
+	return sess, err
+}
+
+func (s *FileStore) Update(id []byte) error {
+	s.Lock()
+	defer s.Unlock()
+	now := time.Now()
+	return os.Chtimes(s.Path(id), now, now)
+}
+
+func (s *FileStore) Delete(id []byte) error {
+	s.Lock()
+	defer s.Unlock()
+	return os.Remove(s.Path(id))
 }
 
 // Figure out the session from the session cookie in the request, or just
@@ -90,7 +175,7 @@ func (g *Gas) Session() (*Session, error) {
 	}
 	//id := []byte(cookie.Value)
 
-	g.session, err = readSession(id)
+	g.session, err = store.Read(id)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -126,7 +211,7 @@ func (g *Gas) SignIn(u User) error {
 		}
 		//id := []byte(cookie.Value)
 
-		if err := updateSession(id); err != nil {
+		if err := store.Update(id); err != nil {
 			return err
 		}
 
@@ -143,7 +228,7 @@ func (g *Gas) SignIn(u User) error {
 
 	username := u.Username()
 	sessid := NewSession(username)
-	err = createSession(sessid, time.Now().Add(Env.MaxCookieAge), username)
+	err = store.Create(sessid, time.Now().Add(Env.MaxCookieAge), username)
 	if err != nil {
 		return err
 	}
@@ -176,7 +261,7 @@ func (g *Gas) SignOut() error {
 	}
 	//id := []byte(cookie.Value)
 
-	if err := deleteSession(id); err != nil && err != sql.ErrNoRows {
+	if err := store.Delete(id); err != nil && err != sql.ErrNoRows {
 		return err
 	}
 

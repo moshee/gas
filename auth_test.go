@@ -65,7 +65,6 @@ func TestAuth(t *testing.T) {
 	}
 	defer DB.Close()
 	initThings()
-
 	testPass := "hello"
 	hash, salt := NewHash([]byte(testPass))
 
@@ -128,6 +127,19 @@ func TestAuth(t *testing.T) {
 		return -1, nil
 	})
 
+	t.Log("Testing DB session store")
+	UseSessionStore(&DBStore{Env.SessTable})
+	testAuth(t, testPass)
+
+	t.Log("Testing FS session store")
+	tmp, err := ioutil.TempDir("", "GAS_TEST")
+	s := &FileStore{Root: tmp}
+	defer s.Destroy()
+	UseSessionStore(s)
+	testAuth(t, testPass)
+}
+
+func testAuth(t *testing.T, testPass string) {
 	srv := httptest.NewServer(http.HandlerFunc(dispatch))
 	defer srv.Close()
 
