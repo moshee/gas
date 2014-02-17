@@ -150,8 +150,10 @@ func (g *Gas) Error(err error) Outputter {
 // value destined for the cookie, the sum calculated off of it, and whatever
 // value the Cookie has already will be replaced.
 func (g *Gas) SetCookie(cookie *http.Cookie, value []byte) {
-	if value != nil && hmacKeys != nil && len(hmacKeys) > 0 {
-		value = hmacSum(value, hmacKeys[0], value)
+	if value != nil {
+		if hmacKeys != nil && len(hmacKeys) > 0 {
+			value = hmacSum(value, hmacKeys[0], value)
+		}
 		cookie.Value = base64.StdEncoding.EncodeToString(value)
 	}
 
@@ -321,7 +323,7 @@ func Ignition(srv *http.Server) {
 	port := ":" + strconv.Itoa(Env.Port)
 
 	LogDebug("Initialization took %v", time.Now().Sub(now))
-	LogNotice("=== Session: %s =========================", now.Format("2006-01-02 13:04"))
+	LogNotice("=== Session: %s =========================", now.Format("2006-01-02 15:04"))
 
 	if Env.FastCGI != "" {
 		parts := strings.SplitN(Env.FastCGI, ":", 2)
