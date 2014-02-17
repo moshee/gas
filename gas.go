@@ -353,10 +353,12 @@ func Ignition(srv *http.Server) {
 			}
 		}
 
-		srv.Addr = port
+		if srv.Addr == "" {
+			srv.Addr = port
+		}
 		srv.Handler = http.HandlerFunc(dispatch)
 
-		LogNotice("Server listening on port %d", Env.Port)
+		LogNotice("Server listening on %s", srv.Addr)
 		LogFatal("Server: %v", srv.ListenAndServe())
 	}
 }
