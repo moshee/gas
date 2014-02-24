@@ -19,8 +19,5 @@ var signal_funcs = map[os.Signal]func(){
 
 func stop() {
 	println()
-	if DB != nil {
-		DB.Close()
-	}
-	os.Exit(0)
+	exit(0)
 }

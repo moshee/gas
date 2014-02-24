@@ -297,6 +297,15 @@ func initThings() {
 		}
 	}
 
+	AddDestructor(func() {
+		for _, stmt := range stmtCache {
+			stmt.Close()
+		}
+		if DB != nil {
+			DB.Close()
+		}
+	})
+
 	if initFuncs != nil {
 		for _, f := range initFuncs {
 			f()
@@ -308,15 +317,6 @@ func initThings() {
 func Ignition(srv *http.Server) {
 	now := time.Now()
 	initThings()
-
-	defer func() {
-		for _, stmt := range stmtCache {
-			stmt.Close()
-		}
-		if DB != nil {
-			DB.Close()
-		}
-	}()
 
 	go handleSignals(sigchan)
 	parseTemplates(templateDir)
@@ -363,6 +363,7 @@ func Ignition(srv *http.Server) {
 		LogNotice("Server listening on %s", srv.Addr)
 		LogFatal("Server: %v", srv.ListenAndServe())
 	}
+	exit(0)
 }
 
 var initFuncs []func()

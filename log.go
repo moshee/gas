@@ -33,7 +33,7 @@ func Log(level LogLevel, format string, args ...interface{}) {
 		log.Printf(level.String()+format, args...)
 	}
 	if level == Fatal {
-		os.Exit(-1)
+		exit(-1)
 	}
 }
 
@@ -51,4 +51,17 @@ func LogWarning(format string, args ...interface{}) {
 
 func LogFatal(format string, args ...interface{}) {
 	Log(Fatal, format, args...)
+}
+
+var exitQueue = make([]func(), 0)
+
+func AddDestructor(f func()) {
+	exitQueue = append(exitQueue, f)
+}
+
+func exit(code int) {
+	for _, f := range exitQueue {
+		f()
+	}
+	os.Exit(code)
 }
