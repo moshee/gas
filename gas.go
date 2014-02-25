@@ -7,6 +7,7 @@ package gas
 import (
 	"bytes"
 	"crypto/hmac"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/gob"
 	"encoding/json"
@@ -320,18 +321,18 @@ func Ignition(srv *http.Server) {
 
 	go handleSignals(sigchan)
 	parseTemplates(templateDir)
-	port := ":" + strconv.Itoa(Env.Port)
 
 	LogDebug("Initialization took %v", time.Now().Sub(now))
 	LogNotice("=== Session: %s =========================", now.Format("2006-01-02 15:04"))
 
 	if Env.FastCGI != "" {
-		parts := strings.SplitN(Env.FastCGI, ":", 2)
-		network, addr := parts[0], parts[1]
 		var (
-			l   net.Listener
-			err error
-			s   = fmt.Sprintf("%s:%s", network, addr)
+			port          = ":" + strconv.Itoa(Env.Port)
+			parts         = strings.SplitN(Env.FastCGI, ":", 2)
+			network, addr = parts[0], parts[1]
+			l             net.Listener
+			err           error
+			s             = fmt.Sprintf("%s:%s", network, addr)
 		)
 
 		if strings.HasPrefix(network, "unix") {
@@ -348,6 +349,9 @@ func Ignition(srv *http.Server) {
 		LogNotice("FastCGI listening on %s", s)
 		LogFatal("FastCGI: %v", fcgi.Serve(l, http.HandlerFunc(dispatch)))
 	} else {
+		if Env.Port < 0 && Env.TLSPort < 0 {
+			LogFatal("must have at least one of either GAS_PORT or GAS_TLS_PORT set")
+		}
 		if srv == nil {
 			srv = &http.Server{
 			//ReadTimeout:  60 * time.Second,
@@ -355,15 +359,62 @@ func Ignition(srv *http.Server) {
 			}
 		}
 
-		if srv.Addr == "" {
-			srv.Addr = port
-		}
 		srv.Handler = http.HandlerFunc(dispatch)
 
-		LogNotice("Server listening on %s", srv.Addr)
-		LogFatal("Server: %v", srv.ListenAndServe())
+		c := make(chan error)
+
+		if Env.TLSPort > 0 {
+			go func() {
+				c <- listenTLS(srv)
+			}()
+		}
+
+		if Env.Port > 0 {
+			go func() {
+				c <- listen(srv)
+			}()
+		}
+
+		LogFatal("%v", <-c)
 	}
 	exit(0)
+}
+
+func listenTLS(srv *http.Server) error {
+	cfg := &tls.Config{}
+	if srv.TLSConfig != nil {
+		*cfg = *srv.TLSConfig
+	} else {
+		cert, err := tls.LoadX509KeyPair(Env.TLSCert, Env.TLSKey)
+		if err != nil {
+			return err
+		}
+		cfg.Certificates = []tls.Certificate{cert}
+		cfg.ServerName = Env.TLSHost
+		cfg.BuildNameToCertificate()
+	}
+
+	if cfg.NextProtos == nil {
+		cfg.NextProtos = []string{"http/1.1"}
+	}
+
+	l, err := net.Listen("tcp", ":"+strconv.Itoa(Env.TLSPort))
+	if err != nil {
+		return err
+	}
+
+	t := tls.NewListener(l, cfg)
+	LogNotice("Server listening on port %d (TLS)", Env.TLSPort)
+	return srv.Serve(t)
+}
+
+func listen(srv *http.Server) error {
+	l, err := net.Listen("tcp", ":"+strconv.Itoa(Env.Port))
+	if err != nil {
+		return err
+	}
+	LogNotice("Server listening on port %d", Env.Port)
+	return srv.Serve(l)
 }
 
 var initFuncs []func()

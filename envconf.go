@@ -33,8 +33,24 @@ var Env struct {
 	// The length of the session ID in bytes
 	SessidLen int `default:"64"`
 
-	// The port for the server to listen on
-	Port int `default:"80"`
+	// The port for the server to listen on.
+	//
+	// PORT and TLS_PORT determine whether to use normal HTTP and/or HTTPS via
+	// TLS. If a port number is set greater than 0, then it will be used. At
+	// least one must be chosen; it is a fatal error to make both zero. If both
+	// are enabled, then the server will listen on both in separate goroutines.
+	//
+	// TLS will not be used if FastCGI is used.
+	Port    int `default:"80"`
+	TLSPort int `default:"-1"`
+
+	// Paths to the TLS certificate and key files, if TLS is enabled. Same
+	// rules as net/http.(*Server).ListenAndServeTLS.
+	TLSCert string
+	TLSKey  string
+
+	// The hostname to send in the TLS handshake
+	TLSHost string
 
 	// When set, the server will listen using FastCGI on the named network,
 	// which is specified as network:address, network being "tcp", "unix", etc.
