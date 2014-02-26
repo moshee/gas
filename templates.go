@@ -92,11 +92,11 @@ func parseTemplates(base string) {
 	Templates = make(map[string]*template.Template)
 
 	err := filepath.Walk(base, func(path string, fi os.FileInfo, err error) error {
-		if !fi.IsDir() {
-			return nil
-		}
 		if err != nil {
 			return err
+		}
+		if !fi.IsDir() {
+			return nil
 		}
 
 		glob := filepath.Join(path, "*.tmpl")
@@ -123,7 +123,11 @@ func parseTemplates(base string) {
 	})
 
 	if err != nil {
-		LogFatal("templates: %v", err)
+		if os.IsNotExist(err) {
+			LogFatal("missing 'templates' directory")
+		} else {
+			LogFatal("templates: %v", err)
+		}
 	}
 }
 
