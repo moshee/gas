@@ -1,4 +1,4 @@
-package gas
+package db
 
 import (
 	"database/sql"
@@ -7,6 +7,7 @@ import (
 	"time"
 
 	_ "github.com/lib/pq"
+	"github.com/moshee/gas"
 )
 
 type Tester struct {
@@ -83,7 +84,7 @@ func exec(t *testing.T, query string) {
 
 func TestCamelToSnake(t *testing.T) {
 	try := func(camel, snake string) {
-		if got := toSnake(camel); got != snake {
+		if got := gas.ToSnake(camel); got != snake {
 			t.Errorf("expected '%s', got '%s'", snake, got)
 		}
 	}
@@ -102,24 +103,7 @@ func TestCamelToSnake(t *testing.T) {
 	}
 }
 
-func TestDBInit(t *testing.T) {
-	if err := InitDB(); err != nil {
-		t.Error(err)
-	}
-
-	if DB == nil {
-		t.Error("DB is nil")
-	} else {
-		DB.Close()
-		DB = nil
-	}
-}
-
 func TestDBRegister(t *testing.T) {
-	if err := InitDB(); err != nil {
-		t.Error(err)
-	}
-
 	test := new(Tester)
 	model, err := Register(reflect.TypeOf(test))
 	if err != nil {
@@ -132,12 +116,6 @@ func TestDBRegister(t *testing.T) {
 }
 
 func TestDBQuery(t *testing.T) {
-	if err := InitDB(); err != nil {
-		t.Error(err)
-	}
-
-	defer DB.Close()
-
 	dateFmt := "2006-01-02 15:04:05"
 	t1, _ := time.Parse(dateFmt, "2013-09-24 17:27:00")
 	t2, _ := time.Parse(dateFmt, "2012-12-12 12:12:12")
@@ -160,13 +138,14 @@ func TestDBQuery(t *testing.T) {
 	}
 	match(t, &test2[0], "testing", 9001, t1)
 	match(t, &test2[1], "testing 2", 666, t2)
+}
 
-	// embedded
+func TestDBQueryEmbeddedStructs(t *testing.T) {
 	exec(t, "CREATE TEMP TABLE go_test_2 ( field_a integer, b integer )")
 	exec(t, "INSERT INTO go_test_2 VALUES ( 10, 66 )")
 
 	test3 := new(Tester2)
-	err = Query(test3, "SELECT field_a, b, b FROM go_test_2 LIMIT 1")
+	err := Query(test3, "SELECT field_a, b, b FROM go_test_2 LIMIT 1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,20 +153,23 @@ func TestDBQuery(t *testing.T) {
 	if test3.FieldA != 10 || test3.Tester3.Tester4.FieldB != 66 || test3.Tester4.FieldB != 66 {
 		t.Error("fail: embedded structs")
 	}
+}
 
-	// missing fields in target struct
+func TestDBQueryMissingFields(t *testing.T) {
 	exec(t, "CREATE TEMP TABLE go_test_3 ( first_column text, not_included text, third_column text )")
 	exec(t, "INSERT INTO go_test_3 VALUES ( 'first', 'nope', 'third' )")
 
 	test4 := new(Tester5)
-	err = Query(test4, "SELECT first_column, third_column AS test FROM go_test_3 LIMIT 1")
+	err := Query(test4, "SELECT first_column, third_column AS test FROM go_test_3 LIMIT 1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if test4.FirstColumn != "first" || test4.ThirdColumn != "third" {
 		t.Error("fail: missing fields in target struct")
 	}
+}
 
+func TestDBQueryJoins(t *testing.T) {
 	// joins
 	exec(t, `CREATE TEMP TABLE a (
 		id   serial      PRIMARY KEY,

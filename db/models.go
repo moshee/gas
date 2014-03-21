@@ -1,27 +1,65 @@
-package gas
+package db
 
 import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"reflect"
+	"strconv"
 	"time"
-	"unicode"
 
 	"github.com/lib/pq"
+	"github.com/moshee/gas"
 )
 
 var (
+	// DB is the singleton database handle instance.
 	DB                  *sql.DB
 	stmtCache           = make(map[string]*sql.Stmt)
-	errNotSliceOrStruct = "gas: models: %T: target is not a pointer to a struct or a slice"
-	errNotPtr           = "gas: models: %T: target is not a pointer"
-	errNotStruct        = "gas: models: %T: target is not a pointer to a struct"
-	errRecursiveType    = "gas: models: %T: cannot register recursive type (this must be dealt with manually)"
-	errEmptyStruct      = "gas: models: %T: what's the point of registering an empty struct?"
-	errNoRows           = errors.New("gas: QueryRow: no rows returned")
-	errBadQueryType     = errors.New("gas: query: query must be either of type string or *sql.Stmt")
+	errNotSliceOrStruct = "db: %T: target is not a pointer to a struct or a slice"
+	errNotPtr           = "db: %T: target is not a pointer"
+	errNotStruct        = "db: %T: target is not a pointer to a struct"
+	errRecursiveType    = "db: %T: cannot register recursive type (this must be dealt with manually)"
+	errEmptyStruct      = "db: %T: what's the point of registering an empty struct?"
+	errNoRows           = errors.New("db: QueryRow: no rows returned")
+	errBadQueryType     = errors.New("db: query must be either of type string or *sql.Stmt")
 )
+
+// Env holds the environment variable configuration specific to database connection.
+var Env struct {
+	DBName   string
+	DBParams string
+}
+
+func init() {
+	err := gas.EnvConf(&Env, gas.EnvPrefix)
+	if err != nil {
+		log.Fatalf("db (init): %v", err)
+	}
+
+	if Env.DBName == "" {
+		log.Fatalf("%sDB_NAME is not set", gas.EnvPrefix)
+	}
+
+	if Env.DBParams == "" {
+		log.Fatalf("%sDB_PARAMS is not set", gas.EnvPrefix)
+	}
+
+	DB, err = sql.Open(Env.DBName, Env.DBParams)
+	if err != nil {
+		log.Fatalf("db (init): %v", err)
+	}
+
+	gas.AddDestructor(func() {
+		for _, stmt := range stmtCache {
+			stmt.Close()
+		}
+		if DB != nil {
+			DB.Close()
+		}
+	})
+}
 
 // NullUint64 is a sql.Scanner for unsigned ints.
 type NullUint64 struct {
@@ -36,7 +74,9 @@ func (n *NullUint64) Scan(src interface{}) error {
 	}
 	n.Valid = true
 	s := asString(src)
-	return stringValue(s, &n.Uint64)
+	var err error
+	n.Uint64, err = strconv.ParseUint(s, 64, 10)
+	return err
 }
 
 func asString(src interface{}) string {
@@ -49,26 +89,6 @@ func asString(src interface{}) string {
 	return fmt.Sprintf("%v", src)
 }
 
-// Opens and initializes database connection.
-//
-// No-op if database connection has already been opened.
-func InitDB() error {
-	if DB != nil {
-		return nil
-	}
-	if Env.DbName == "" {
-		return errors.New(EnvPrefix + "DB_NAME is not set")
-	}
-
-	if Env.DbParams == "" {
-		return errors.New(EnvPrefix + "DB_PARAMS is not set")
-	}
-
-	var err error
-	DB, err = sql.Open(Env.DbName, Env.DbParams)
-	return err
-}
-
 func getStmt(query string) (*sql.Stmt, error) {
 	if stmt, ok := stmtCache[query]; ok {
 		return stmt, nil
@@ -79,37 +99,6 @@ func getStmt(query string) (*sql.Stmt, error) {
 	}
 	stmtCache[query] = stmt
 	return stmt, nil
-}
-
-func toSnake(in string) string {
-	if len(in) == 0 {
-		return ""
-	}
-
-	out := make([]rune, 0, len(in))
-	foundUpper := false
-	r := []rune(in)
-
-	for i := 0; i < len(r); i++ {
-		ch := r[i]
-		if unicode.IsUpper(ch) {
-			if i > 0 && i < len(in)-1 && !unicode.IsUpper(r[i+1]) {
-				out = append(out, '_', unicode.ToLower(ch), r[i+1])
-				i++
-				continue
-				foundUpper = false
-			}
-			if i > 0 && !foundUpper {
-				out = append(out, '_')
-			}
-			out = append(out, unicode.ToLower(ch))
-			foundUpper = true
-		} else {
-			foundUpper = false
-			out = append(out, ch)
-		}
-	}
-	return string(out)
 }
 
 var modelCache = make(map[reflect.Type]model)
@@ -213,7 +202,7 @@ type field struct {
 func newField(s reflect.StructField) (f *field) {
 	f = new(field)
 	f.t = s.Type
-	f.originalName = toSnake(s.Name)
+	f.originalName = gas.ToSnake(s.Name)
 	if tag := s.Tag.Get("sql"); tag != "" {
 		f.name = tag
 	} else {

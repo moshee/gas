@@ -1,4 +1,4 @@
-package gas
+package out
 
 import (
 	"compress/gzip"
@@ -7,12 +7,15 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
+	"github.com/moshee/gas"
 	md "github.com/russross/blackfriday"
 )
 
@@ -25,13 +28,11 @@ var (
 	templateLock sync.RWMutex
 	templateDir  = "templates"
 
-	// The blackfriday extensions used to render markdown
-	MarkdownExts = md.EXTENSION_NO_INTRA_EMPHASIS | md.EXTENSION_TABLES |
+	markdownExts = md.EXTENSION_NO_INTRA_EMPHASIS | md.EXTENSION_TABLES |
 		md.EXTENSION_FENCED_CODE | md.EXTENSION_STRIKETHROUGH |
 		md.EXTENSION_FOOTNOTES
 
-		// The blackfriday renderer used to render markdown
-	MarkdownRenderer = md.HtmlRenderer(md.HTML_GITHUB_BLOCKCODE|md.HTML_USE_SMARTYPANTS, "", "")
+	markdownRenderer = md.HtmlRenderer(md.HTML_GITHUB_BLOCKCODE|md.HTML_USE_SMARTYPANTS, "", "")
 
 	globalFuncmap = template.FuncMap{
 		"string": func(b []byte) string {
@@ -46,9 +47,8 @@ var (
 			case sql.NullString:
 				if v.Valid {
 					return markdown([]byte(v.String)), nil
-				} else {
-					return template.HTML(""), nil
 				}
+				return template.HTML(""), nil
 
 			case string:
 				return markdown([]byte(v)), nil
@@ -65,9 +65,17 @@ var (
 	}
 )
 
-// Add a function to the template func map which will be accessible within the
-// templates. TemplateFunc must be called before Ignition, or else it will have
-// no effect.
+func init() {
+	parseTemplates(templateDir)
+	gas.Hook(syscall.SIGUSR1, func() {
+		parseTemplates(templateDir)
+		log.Printf("Templates reloaded.")
+	})
+}
+
+// TemplateFunc adds a function to the template func map which will be
+// accessible within the templates. TemplateFunc must be called before Ignition,
+// or else it will have no effect.
 //
 // Predefined global funcs that will be overridden:
 //     "string":    func(b []byte) string
@@ -81,11 +89,12 @@ func TemplateFunc(name string, f interface{}) {
 
 // return safe HTML of rendered markdown
 func markdown(in []byte) template.HTML {
-	return template.HTML(md.Markdown(in, MarkdownRenderer, MarkdownExts))
+	return template.HTML(md.Markdown(in, markdownRenderer, markdownExts))
 }
 
 // recursively parse templates in a directory
 func parseTemplates(base string) {
+	os.MkdirAll(base, 0755)
 	templateLock.Lock()
 	defer templateLock.Unlock()
 
@@ -100,14 +109,14 @@ func parseTemplates(base string) {
 		}
 
 		glob := filepath.Join(path, "*.tmpl")
-		LogDebug("adding templates in %s", glob)
+		log.Printf("adding templates in %s", glob)
 		files, err := filepath.Glob(glob)
 		if err != nil {
 			return err
 		}
 
 		if len(files) == 0 {
-			LogNotice("no template files in %s", path)
+			log.Printf("no template files in %s", path)
 			return nil
 		}
 
@@ -124,9 +133,9 @@ func parseTemplates(base string) {
 
 	if err != nil {
 		if os.IsNotExist(err) {
-			LogFatal("missing 'templates' directory")
+			log.Fatalf("missing 'templates' directory")
 		} else {
-			LogFatal("templates: %v", err)
+			log.Fatalf("templates: %v", err)
 		}
 	}
 }
@@ -172,7 +181,7 @@ func parseTemplatePath(path string) templatePath {
 // io.Writer is injected into the function's scope in a closure, so minimal
 // buffering takes place. It is an error to call the "content" function in a
 // non-layout template.
-func HTML(path string, data interface{}, layoutPaths ...string) Outputter {
+func HTML(path string, data interface{}, layoutPaths ...string) gas.Outputter {
 	var layouts []templatePath
 	if len(layoutPaths) > 0 {
 		layouts = make([]templatePath, len(layoutPaths))
@@ -184,14 +193,14 @@ func HTML(path string, data interface{}, layoutPaths ...string) Outputter {
 	return &templateOutputter{parseTemplatePath(path), layouts, data}
 }
 
-func (o *templateOutputter) Output(code int, g *Gas) {
+func (o *templateOutputter) Output(code int, g *gas.Gas) {
 	templateLock.RLock()
 	defer templateLock.RUnlock()
 	group := Templates[o.path]
 	var t *template.Template
 
 	if group == nil {
-		LogWarning("Failed to access template group \"%s\"", o.path)
+		log.Printf("Failed to access template group \"%s\"", o.path)
 		g.WriteHeader(500)
 		fmt.Fprintf(g, "Error: template group \"%s\" not found. Did it fail to compile?", o.path)
 		return
@@ -210,7 +219,7 @@ func (o *templateOutputter) Output(code int, g *Gas) {
 	}
 
 	if t == nil {
-		LogWarning("No such template: %s/%s", o.path, o.name)
+		log.Printf("No such template: %s/%s", o.path, o.name)
 		g.WriteHeader(500)
 		fmt.Fprintf(g, "Error: no such template: %s/%s", o.path, o.name)
 		return
@@ -253,11 +262,11 @@ func (o *templateOutputter) Output(code int, g *Gas) {
 			if err := (func(i int) error {
 				group, ok := Templates[path.path]
 				if !ok {
-					return fmt.Errorf("No such template path %s for layout %s", path.path, path.name)
+					return fmt.Errorf("no such template path %s for layout %s", path.path, path.name)
 				}
 				layout := group.Lookup(path.name)
 				if layout == nil {
-					return fmt.Errorf("No such layout %s in path %s", path.name, path.path)
+					return fmt.Errorf("no such layout %s in path %s", path.name, path.path)
 				}
 
 				layouts[i] = layout
@@ -277,16 +286,15 @@ func (o *templateOutputter) Output(code int, g *Gas) {
 							funcs[i+1]()
 							layouts[i+1].Execute(w, o.data)
 							return "", nil
-						} else {
-							return "", t.Execute(w, o.data)
 						}
+						return "", t.Execute(w, o.data)
 					}
 					layout.Funcs(template.FuncMap{"content": f})
 				}
 
 				return nil
 			})(n); err != nil {
-				LogWarning("Render: Layouts: %v", err)
+				log.Printf("Render: Layouts: %v", err)
 				g.WriteHeader(500)
 				fmt.Fprint(w, err.Error())
 				return
@@ -303,14 +311,11 @@ func (o *templateOutputter) Output(code int, g *Gas) {
 
 	if err := t.Execute(w, o.data); err != nil {
 		t = Templates[o.path].Lookup(o.name + "-error")
-		LogWarning("Failed to render template %s/%s: %v", o.path, o.name, err)
 		if t == nil {
-			LogWarning("Template %s/%s has no error template", o.path, o.name)
 			fmt.Fprintf(g, "Error: failed to serve error page for %s/%s (error template not found)", o.path, o.name)
 			return
 		}
 		if err = t.Execute(g, err); err != nil {
-			LogWarning("Failed to render error template for %s/%s (%v)", o.path, o.name, err)
 			fmt.Fprintf(g, "Error: failed to serve error page for %s/%s (%v)", o.path, o.name, err)
 			return
 		}

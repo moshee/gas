@@ -1,6 +1,7 @@
-package gas
+package auth
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/rand"
 	"database/sql"
@@ -8,19 +9,23 @@ import (
 	"encoding/json"
 	"errors"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
+	"github.com/moshee/gas"
+	"github.com/moshee/gas/db"
 
 	"code.google.com/p/go.crypto/scrypt"
+	"code.google.com/p/go.crypto/sha3"
 )
 
 var (
 	errNoUser        = errors.New("gas: no user has been provided")
-	errBadPassword   = errors.New("Invalid username or password.")
-	errCookieExpired = errors.New("Your session has expired. Please log in again.")
+	errBadPassword   = errors.New("invalid username or password")
+	errCookieExpired = errors.New("session cookie expired")
 	errBadMac        = errors.New("HMAC digests don't match")
 	hmacKeys         [][]byte
 	store            SessionStore
@@ -29,23 +34,61 @@ var (
 // keccak256
 const macLength = 32
 
+// Env contains the environment variables specific to user authentication.
+var Env struct {
+	// Maximum age of a cookie before it goes stale. Syntax specified as in
+	// time.ParseDuration (maximum unit is hours 'h')
+	MaxCookieAge time.Duration `default:"186h"`
+
+	// The key used in HMAC signing of cookies. If it's blank, no signing will
+	// be used. Multiple os.PathListSeparator-separated keys can be used to
+	// allow for key rotation; the keys will be tried in order from left to
+	// right.
+	CookieAuthKey []byte
+
+	// The name of the database table in which sessions will be stored
+	SessTable string `default:"gas_sessions"`
+
+	// The length of the session ID in bytes
+	SessidLen int `default:"64"`
+
+	// HASH_COST is the cost passed into the scrypt hash function. It is
+	// represented as the power of 2 (aka HASH_COST=9 means 2<<9 iterations).
+	// It should be set as desired in the main() function of the importing
+	// client. A value of 13 (the default) is a good number to start with, and
+	// should be increased as hardware gets faster (see
+	// http://www.tarsnap.com/scrypt.html for more info)
+	HashCost uint `default:"13"`
+}
+
+func init() {
+	if err := gas.EnvConf(&Env, gas.EnvPrefix); err != nil {
+		log.Fatalf("auth (init): %v", err)
+	}
+
+	if len(Env.CookieAuthKey) > 0 {
+		hmacKeys = bytes.Split(Env.CookieAuthKey, []byte{byte(os.PathListSeparator)})
+	}
+
+	_, err := db.DB.Exec("CREATE TABLE IF NOT EXISTS " + Env.SessTable +
+		" ( id bytea, expires timestamptz, username text )")
+	if err != nil {
+		log.Fatalf("db (init): %v", err)
+	}
+
+}
+
+// A User is a generic representation of a user with some common traits
 type User interface {
 	Username() string
 	Secrets() (passHash, salt []byte, err error)
 }
 
-// Describes a secure session to be stored temporarily or long-term.
+// Session is a secure session to be stored temporarily or long-term.
 type Session struct {
 	Id       []byte
 	Expires  time.Time
 	Username string
-}
-
-// Create a new random session ID, base64 encoded
-func NewSession(username string) []byte {
-	sessid := make([]byte, Env.SessidLen)
-	rand.Read(sessid)
-	return sessid
 }
 
 // UseSessionStore instructs the package to use the given store to store
@@ -71,7 +114,7 @@ type DBStore struct {
 }
 
 func (s *DBStore) Create(id []byte, expires time.Time, username string) error {
-	_, err := DB.Exec("INSERT INTO "+s.Table+" VALUES ( $1, $2, $3 )",
+	_, err := db.DB.Exec("INSERT INTO "+s.Table+" VALUES ( $1, $2, $3 )",
 		id, expires, username)
 
 	return err
@@ -79,18 +122,18 @@ func (s *DBStore) Create(id []byte, expires time.Time, username string) error {
 
 func (s *DBStore) Read(id []byte) (*Session, error) {
 	sess := new(Session)
-	err := Query(sess, "SELECT * FROM "+s.Table+" WHERE id = $1", id)
+	err := db.Query(sess, "SELECT * FROM "+s.Table+" WHERE id = $1", id)
 	return sess, err
 }
 
 func (s *DBStore) Update(id []byte) error {
 	exp := time.Now().Add(Env.MaxCookieAge)
-	_, err := DB.Exec("UPDATE "+s.Table+" SET expires = $1", exp)
+	_, err := db.DB.Exec("UPDATE "+s.Table+" SET expires = $1", exp)
 	return err
 }
 
 func (s *DBStore) Delete(id []byte) error {
-	_, err := DB.Exec("DELETE FROM "+s.Table+" WHERE id = $1", id)
+	_, err := db.DB.Exec("DELETE FROM "+s.Table+" WHERE id = $1", id)
 	return err
 }
 
@@ -185,58 +228,69 @@ func (s *FileStore) Delete(id []byte) error {
 	return os.Remove(s.Path(id))
 }
 
-// Figure out the session from the session cookie in the request, or just
-// return the session if that's been done already.
-func (g *Gas) Session() (*Session, error) {
-	if g.session != nil {
-		return g.session, nil
+// GetSession figures out the session from the session cookie in the request, or
+// just return the session if that's been done already.
+func GetSession(g *gas.Gas) (*Session, error) {
+	const sessKey = "_gas_session"
+	if sessBox := g.Data(sessKey); sessBox != nil {
+		if sess, ok := sessBox.(*Session); ok {
+			return sess, nil
+		}
 	}
 
 	cookie, err := g.Cookie("s")
 	if err != nil {
 		if err == http.ErrNoCookie {
 			return nil, nil
-		} else {
-			g.SignOut()
-			return nil, err
 		}
+		SignOut(g)
+		return nil, err
+	}
+
+	if err = VerifyCookie(cookie); err != nil {
+		return nil, err
 	}
 
 	id, err := base64.StdEncoding.DecodeString(cookie.Value)
 	if err != nil {
 		// this means invalid session
-		g.SignOut()
+		SignOut(g)
 		return nil, err
 	}
 	//id := []byte(cookie.Value)
 
-	g.session, err = store.Read(id)
+	sess, err := store.Read(id)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			g.SignOut()
+			SignOut(g)
 			return nil, nil
-		} else {
-			return nil, err
 		}
+		return nil, err
 	}
 
-	if g.session != nil && time.Now().After(g.session.Expires) {
-		g.SignOut()
+	if time.Now().After(sess.Expires) {
+		SignOut(g)
 		return nil, errCookieExpired
 	}
 
-	return g.session, nil
+	g.SetData(sessKey, sess)
+
+	return sess, nil
 }
 
-// Signs the user in by creating a new session and setting a cookie on the
-// client.
-func (g *Gas) SignIn(u User) error {
+// SignIn signs the user in by creating a new session and setting a cookie on
+// the client.
+func SignIn(g *gas.Gas, u User) error {
 	// already signed in?
-	sess, _ := g.Session()
+	sess, _ := GetSession(g)
 	if sess != nil {
 		cookie, err := g.Cookie("s")
 		if err != nil && err != http.ErrNoCookie {
+			return err
+		}
+
+		if err = VerifyCookie(cookie); err != nil {
 			return err
 		}
 
@@ -262,7 +316,8 @@ func (g *Gas) SignIn(u User) error {
 	}
 
 	username := u.Username()
-	sessid := NewSession(username)
+	sessid := make([]byte, Env.SessidLen)
+	rand.Read(sessid)
 	err = store.Create(sessid, time.Now().Add(Env.MaxCookieAge), username)
 	if err != nil {
 		return err
@@ -274,19 +329,25 @@ func (g *Gas) SignIn(u User) error {
 	cookie := &http.Cookie{
 		Name:     "s",
 		Path:     "/",
+		Value:    base64.StdEncoding.EncodeToString(sessid),
 		MaxAge:   int(Env.MaxCookieAge / time.Second),
 		HttpOnly: true,
 	}
 
-	g.SetCookie(cookie, sessid)
+	SignCookie(cookie)
+
+	g.SetCookie(cookie)
 
 	return nil
 }
 
-// Signs the user out, destroying the associated session and cookie.
-func (g *Gas) SignOut() error {
+// SignOut signs the user out, destroying the associated session and cookie.
+func SignOut(g *gas.Gas) error {
 	cookie, err := g.Cookie("s")
 	if err != nil {
+		return err
+	}
+	if err := VerifyCookie(cookie); err != nil {
 		return err
 	}
 
@@ -300,19 +361,74 @@ func (g *Gas) SignOut() error {
 		return err
 	}
 
-	g.SetCookie(&http.Cookie{
+	cookie = &http.Cookie{
 		Name:     "s",
 		Path:     "/",
 		Value:    "",
 		Expires:  time.Time{},
 		MaxAge:   -1,
 		HttpOnly: true,
-	}, nil)
+	}
+
+	SignCookie(cookie)
+	g.SetCookie(cookie)
 
 	return nil
 }
 
-// Check if the supplied passphrase matches the expected hash using the salt.
+// SignCookie signs a cookie's value with the configured HMAC key, if it exists
+func SignCookie(cookie *http.Cookie) {
+	if hmacKeys != nil && len(hmacKeys) > 0 {
+		// so what's going on here is that stuff is getting base64 encoded two
+		// times. First the value, and then the hmac is appended and it's all
+		// encoded again.
+		b := []byte(cookie.Value)
+		sum := hmacSum(b, hmacKeys[0], b)
+		cookie.Value = base64.StdEncoding.EncodeToString(sum)
+	}
+}
+
+// VerifyCookie checks and un-signs the cookie's contents against all of the
+// configured HMAC keys.
+func VerifyCookie(cookie *http.Cookie) error {
+	decodedLen := base64.StdEncoding.DecodedLen(len(cookie.Value))
+	if hmacKeys == nil || len(hmacKeys) == 0 || decodedLen < macLength {
+		return nil
+	}
+
+	p, err := base64.StdEncoding.DecodeString(cookie.Value)
+	if err != nil {
+		return err
+	}
+
+	var (
+		pos = len(p) - macLength
+		val = p[:pos]
+		sum = p[pos:]
+	)
+
+	for _, key := range hmacKeys {
+		s := hmacSum(val, key, nil)
+		if hmac.Equal(s, sum) {
+			// So when we reset the value of the cookie to the un-signed value,
+			// we're not decoding or encoding it again.
+			// I guess this is how WTFs happen.
+			cookie.Value = string(val)
+			return nil
+		}
+	}
+
+	return errBadMac
+}
+
+func hmacSum(plaintext, key, b []byte) []byte {
+	mac := hmac.New(sha3.NewKeccak256, key)
+	mac.Write(plaintext)
+	return mac.Sum(b)
+}
+
+// VerifyHash checks if the supplied passphrase matches the expected hash using
+// the salt.
 func VerifyHash(supplied, expected, salt []byte) bool {
 	hashed := Hash(supplied, salt)
 	return hmac.Equal(expected, hashed)
@@ -324,7 +440,7 @@ func Hash(pass []byte, salt []byte) []byte {
 	return hash
 }
 
-// Create a new hash and random salt from the supplied password.
+// NewHash creates a new hash and random salt from the supplied password.
 func NewHash(pass []byte) (hash, salt []byte) {
 	salt = make([]byte, 16)
 	rand.Read(salt)

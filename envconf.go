@@ -2,6 +2,7 @@ package gas
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"reflect"
 	"strconv"
@@ -14,25 +15,6 @@ import (
 // They may be overridden during runtime, but note that some are only used on
 // startup (after init() and before Ignition).
 var Env struct {
-	DbName   string
-	DbParams string
-
-	// Maximum age of a cookie before it goes stale. Syntax specified as in
-	// time.ParseDuration (maximum unit is hours 'h')
-	MaxCookieAge time.Duration `default:"186h"`
-
-	// The key used in HMAC signing of cookies. If it's blank, no signing will
-	// be used. Multiple os.PathListSeparator-separated keys can be used to
-	// allow for key rotation; the keys will be tried in order from left to
-	// right.
-	CookieAuthKey []byte
-
-	// The name of the database table in which sessions will be stored
-	SessTable string `default:"gas_sessions"`
-
-	// The length of the session ID in bytes
-	SessidLen int `default:"64"`
-
 	// The port for the server to listen on.
 	//
 	// PORT and TLS_PORT determine whether to use normal HTTP and/or HTTPS via
@@ -63,22 +45,15 @@ var Env struct {
 	//     GAS_FAST_CGI=unix:/tmp/website.sock
 	//     GAS_FAST_CGI=tcp:[::1]
 	FastCGI string
-
-	// HASH_COST is the cost passed into the scrypt hash function. It is
-	// represented as the power of 2 (aka HASH_COST=9 means 2<<9 iterations).
-	// It should be set as desired in the main() function of the importing
-	// client. A value of 13 (the default) is a good number to start with, and
-	// should be increased as hardware gets faster (see
-	// http://www.tarsnap.com/scrypt.html for more info)
-	HashCost uint `default:"13"`
 }
 
 // The prefix append to the field name in Env, e.g. Env.DBName would be
 // populated by the environment variable GAS_DB_NAME.
 const EnvPrefix = "GAS_"
 
-// Pass in a pointer to a struct that looks like Env and the fields will be
-// filled in with the corresponding environment variables. Struct tag meanings:
+// EnvConf will populate a pointer to a struct that looks like Env and the
+// fields will be filled in with the corresponding environment variables. Struct
+// tag meanings:
 //
 //     envconf:"required" // an error will be returned if this var isn't given
 //     default:"<default value>" // provide a default if this var isn't given
@@ -88,9 +63,9 @@ func EnvConf(conf interface{}, prefix string) error {
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
 		fieldVal := val.Field(i)
-		name := prefix + strings.ToUpper(toSnake(field.Name))
+		name := prefix + strings.ToUpper(ToSnake(field.Name))
 		v := os.Getenv(name)
-		LogDebug("[envconf] %s = '%s'", name, v)
+		log.Printf("[envconf] %s = '%s'", name, v)
 
 		if v == "" {
 			if field.Tag.Get("envconf") == "required" {

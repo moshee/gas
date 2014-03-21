@@ -35,7 +35,6 @@ func TestEnvConf(t *testing.T) {
 	}
 
 	assertEqual(Env.Port, 80)
-	assertEqual(Env.CookieAuthKey, []byte(""))
 	for key, val := range env {
 		os.Setenv(EnvPrefix+key, val)
 	}

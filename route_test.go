@@ -1,12 +1,11 @@
 package gas
 
 import (
-	"fmt"
-	"io/ioutil"
-	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"testing"
+
+	"github.com/moshee/gas/testutil"
 )
 
 func mapeq(m1, m2 map[string]string) bool {
@@ -68,92 +67,57 @@ func TestMatch(t *testing.T) {
 	}
 }
 
-func testGet(t *testing.T, srv *httptest.Server, url, expected string) {
-	url = srv.URL + url
-	resp, err := testclient.Get(url)
-	if err != nil {
-		t.Errorf("testGet %s: %v", url, err)
-		return
-	}
-	defer resp.Body.Close()
-
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		t.Errorf("testGet %s: %v", url, err)
-		return
-	}
-
-	if s := string(body); s != expected {
-		t.Errorf("testGet %s: expected '%s', got '%s'", url, expected, s)
-	}
-}
-
 func TestDispatch(t *testing.T) {
-	New().Use(func(g *Gas) (int, Outputter) {
+	r := New().
+		Use(func(g *Gas) (int, Outputter) {
 		g.SetData("middleware", true)
-		return 0, nil
-	}).Get("/test1", func(g *Gas) (int, Outputter) {
+		return g.Continue()
+	}).
+		Get("/test1", func(g *Gas) (int, Outputter) {
 		g.Write([]byte("yes"))
 		return -1, nil
-	}).Get("/test2", func(g *Gas) (int, Outputter) {
+	}).
+		Get("/test2", func(g *Gas) (int, Outputter) {
 		g.SetData("something", 6)
 		g.SetData("something else", "test")
-		return 0, nil
+		return g.Continue()
 	}, func(g *Gas) (int, Outputter) {
 		g.Write([]byte(g.Data("something else").(string)))
 		return -1, nil
-	}).Get("/test3", func(g *Gas) (int, Outputter) {
+	}).
+		Get("/test3", func(g *Gas) (int, Outputter) {
 		g.SetData("test", 10)
-		return 0, nil
+		return g.Continue()
 	}, func(g *Gas) (int, Outputter) {
 		g.Write([]byte(strconv.Itoa(g.Data("test").(int))))
 		return -1, nil
 	}, func(g *Gas) (int, Outputter) {
 		g.Write([]byte("nope"))
 		return -1, nil
-	}).Get("/test4", func(g *Gas) (int, Outputter) {
+	}).
+		Get("/test4", func(g *Gas) (int, Outputter) {
 		g.Write([]byte(strconv.FormatBool(g.Data("middleware").(bool))))
 		return -1, nil
-	}).Get("/panic", func(g *Gas) (int, Outputter) {
+	}).
+		Get("/panic", func(g *Gas) (int, Outputter) {
 		panic("lol")
 	})
 
-	srv := httptest.NewServer(http.HandlerFunc(dispatch))
+	srv := httptest.NewServer(r)
 	defer srv.Close()
 
-	testGet(t, srv, "/test1", "yes")
-	testGet(t, srv, "/test2", "test")
-	testGet(t, srv, "/test3", "10")
-	testGet(t, srv, "/test4", "true")
+	testutil.TestGet(t, srv, "/test1", "yes")
+	testutil.TestGet(t, srv, "/test2", "test")
+	testutil.TestGet(t, srv, "/test3", "10")
+	testutil.TestGet(t, srv, "/test4", "true")
 
-	v := Verbosity
-	Verbosity -= v
-	resp, err := testclient.Get(srv.URL + "/panic")
+	resp, err := testutil.Client.Get(srv.URL + "/panic")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if resp.StatusCode != 500 {
 		t.Fatalf("expected 500 code for panic, got %d", resp.StatusCode)
 	}
-	Verbosity = v
-}
-
-func TestReroute(t *testing.T) {
-	New().Get("/reroute1", func(g *Gas) (int, Outputter) {
-		return 303, Reroute("/reroute2", map[string]string{"test": "ok"})
-	}).Get("/reroute2", func(g *Gas) (int, Outputter) {
-		var m map[string]string
-		if err := g.Recover(&m); err != nil {
-			t.Fatal(err)
-			fmt.Fprint(g, "no")
-		}
-		fmt.Fprint(g, m["test"])
-		return -1, nil
-	})
-
-	srv := httptest.NewServer(http.HandlerFunc(dispatch))
-	defer srv.Close()
-	testGet(t, srv, "/reroute1", "ok")
 }
 
 type Bench struct {

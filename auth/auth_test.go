@@ -1,4 +1,4 @@
-package gas
+package auth
 
 import (
 	"encoding/base64"
@@ -10,6 +10,9 @@ import (
 	"net/http/httptest"
 	uri "net/url"
 	"testing"
+
+	"github.com/moshee/gas"
+	"github.com/moshee/gas/db"
 )
 
 var testclient *http.Client
@@ -48,7 +51,7 @@ func (u *MyUser) byUsername(name string) (*MyUser, error) {
 		return nil, errors.New("byUsername: empty name")
 	}
 	u = new(MyUser)
-	err := Query(u, "SELECT * FROM gas_test_users WHERE name = $1", name)
+	err := db.Query(u, "SELECT * FROM gas_test_users WHERE name = $1", name)
 	return u, err
 }
 
@@ -59,16 +62,10 @@ func TestAuth(t *testing.T) {
 			//fmt.Println(http.ListenAndServe(":6006", nil))
 		}()
 	*/
-
-	if err := InitDB(); err != nil {
-		t.Fatal(err)
-	}
-	defer DB.Close()
-	initThings()
 	testPass := "hello"
 	hash, salt := NewHash([]byte(testPass))
 
-	tx, err := DB.Begin()
+	tx, err := db.DB.Begin()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,8 +81,8 @@ func TestAuth(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	New().Get("/", func(g *Gas) (int, Outputter) {
-		if sess, err := g.Session(); sess == nil || err != nil {
+	r := gas.New().Get("/", func(g *gas.Gas) (int, gas.Outputter) {
+		if sess, err := GetSession(g); sess == nil || err != nil {
 			fmt.Fprint(g, "no")
 		} else {
 			if u, err := new(MyUser).byUsername(sess.Username); err != nil {
@@ -95,8 +92,8 @@ func TestAuth(t *testing.T) {
 			}
 		}
 		return -1, nil
-	}).Get("/hmac", func(g *Gas) (int, Outputter) {
-		_, err := g.Session()
+	}).Get("/hmac", func(g *gas.Gas) (int, gas.Outputter) {
+		_, err := GetSession(g)
 		if err != nil {
 			fmt.Fprint(g, "no")
 			if err != errBadMac {
@@ -106,20 +103,20 @@ func TestAuth(t *testing.T) {
 			fmt.Fprint(g, "yes")
 		}
 		return -1, nil
-	}).Post("/login", func(g *Gas) (int, Outputter) {
+	}).Post("/login", func(g *gas.Gas) (int, gas.Outputter) {
 		u, err := new(MyUser).byUsername(g.FormValue("username"))
 		if err != nil {
 			fmt.Fprint(g, "no")
 			return -1, nil
 		}
-		if err = g.SignIn(u); err != nil {
+		if err = SignIn(g, u); err != nil {
 			fmt.Fprint(g, "no")
 		} else {
 			fmt.Fprint(g, "yes")
 		}
 		return -1, nil
-	}).Get("/logout", func(g *Gas) (int, Outputter) {
-		if err := g.SignOut(); err != nil {
+	}).Get("/logout", func(g *gas.Gas) (int, gas.Outputter) {
+		if err := SignOut(g); err != nil {
 			fmt.Fprint(g, "no")
 		} else {
 			fmt.Fprint(g, "yes")
@@ -129,7 +126,7 @@ func TestAuth(t *testing.T) {
 
 	t.Log("Testing DB session store")
 	UseSessionStore(&DBStore{Env.SessTable})
-	testAuth(t, testPass)
+	testAuth(t, testPass, r)
 
 	t.Log("Testing FS session store")
 	s, err := NewFileStore()
@@ -138,11 +135,11 @@ func TestAuth(t *testing.T) {
 	}
 	defer s.Destroy()
 	UseSessionStore(s)
-	testAuth(t, testPass)
+	testAuth(t, testPass, r)
 }
 
-func testAuth(t *testing.T, testPass string) {
-	srv := httptest.NewServer(http.HandlerFunc(dispatch))
+func testAuth(t *testing.T, testPass string, r *gas.Router) {
+	srv := httptest.NewServer(r)
 	defer srv.Close()
 
 	hmacKeys = [][]byte{[]byte("super secret key")}

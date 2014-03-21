@@ -2,23 +2,38 @@ package gas
 
 import (
 	"bytes"
-	"encoding/base64"
 	"fmt"
+	"html/template"
 	"io"
+	"io/ioutil"
+	"log"
+	"math"
 	"net"
 	"net/http"
+	"net/http/fcgi"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 	"text/tabwriter"
 	"time"
 )
 
-// All request handlers implemented should have this signature.
+// A Handler can be used as a request handler for a Router.
 type Handler func(g *Gas) (code int, o Outputter)
 
+// An Outputter implements a method to return a response back to a request.
 type Outputter interface {
 	Output(code int, g *Gas)
+}
+
+// OutputFunc is an Outputter that is just a function.
+type OutputFunc func(code int, g *Gas)
+
+// Output implements the Outputter interface.
+func (o OutputFunc) Output(code int, g *Gas) {
+	o(code, g)
 }
 
 type matcher struct {
@@ -99,6 +114,7 @@ func (r *route) String() string {
 	return fmt.Sprintf("[%s] %v", r.method, r.matchers)
 }
 
+// match this route against an incoming url and return args if it matches
 func (r *route) match(method, url string) (map[string]string, bool) {
 	if method != r.method {
 		return nil, false
@@ -122,11 +138,6 @@ func (r *route) match(method, url string) (map[string]string, bool) {
 	return values, true
 }
 
-var (
-	default_router *Router
-	routers        = make(map[string]*Router)
-)
-
 // Router is the URL router. Attached methods may be chained for easy adding of
 // routes.
 type Router struct {
@@ -134,21 +145,15 @@ type Router struct {
 
 	// these will be executed in order on every request made to this router
 	middleware []Handler
+
+	// Server is the HTTP server that the package will attach to and use. If
+	// it's nil, an empty *http.Server instance will be used.
+	Server *http.Server
 }
 
-// Create a new Router that responds to the given subdomains. If no subdomains
-// are given, it assumes the base host.
-func New(subdomains ...string) (r *Router) {
-	r = new(Router)
-	r.routes = make([]*route, 0)
-	if len(subdomains) > 0 {
-		for _, s := range subdomains {
-			routers[s] = r
-		}
-	} else {
-		default_router = r
-	}
-	return
+// New creates a new router onto which routes may be added.
+func New() *Router {
+	return &Router{routes: make([]*route, 0)}
 }
 
 // Use instructs this router to use the given middleware stack. The router's
@@ -158,6 +163,20 @@ func (r *Router) Use(middleware ...Handler) *Router {
 	return r
 }
 
+// UseMore adds more middleware to the current stack
+func (r *Router) UseMore(middleware ...Handler) *Router {
+	r.middleware = append(r.middleware, middleware...)
+	return r
+}
+
+// SetServer allows a user to attach a server to the router inline with other
+// chained setup method calls.
+func (r *Router) SetServer(srv *http.Server) *Router {
+	r.Server = srv
+	return r
+}
+
+// match each route against incoming url and return args
 func (r *Router) match(req *http.Request) (map[string]string, []Handler) {
 	for _, route := range r.routes {
 		if values, ok := route.match(req.Method, req.URL.Path); ok {
@@ -173,106 +192,159 @@ func (r *Router) Add(pattern string, method string, handlers ...Handler) *Router
 	return r
 }
 
+// Head adds a route that responds to HEAD requests.
 func (r *Router) Head(pattern string, handlers ...Handler) *Router {
 	return r.Add(pattern, "HEAD", handlers...)
 }
 
+// Get adds a route that responds to GET requests.
 func (r *Router) Get(pattern string, handlers ...Handler) *Router {
 	return r.Add(pattern, "GET", handlers...).Head(pattern, handlers...)
 }
 
+// Post adds a route that responds to POST requests.
 func (r *Router) Post(pattern string, handlers ...Handler) *Router {
 	return r.Add(pattern, "POST", handlers...)
 }
 
+// Put adds a route that responds to PUT requests.
 func (r *Router) Put(pattern string, handlers ...Handler) *Router {
 	return r.Add(pattern, "PUT", handlers...)
 }
 
+// Delete adds a route that responds to DELETE requests.
 func (r *Router) Delete(pattern string, handlers ...Handler) *Router {
 	return r.Add(pattern, "DELETE", handlers...)
 }
 
-func dispatch(w http.ResponseWriter, r *http.Request) {
+// Continue instructs the request context to advance to the next handler in the
+// chain. It is an error to call Continue when no more handlers exist down the
+// chain.
+func (g *Gas) Continue() (int, Outputter) {
+	if g.handlers == nil || len(g.handlers) == 0 {
+		return 500, OutputFunc(func(code int, g *Gas) {
+			g.WriteHeader(code)
+			g.Write([]byte("nil or empty handler chain"))
+		})
+	}
+
+	handler := g.handlers[0]
+	g.handlers = g.handlers[1:]
+	return handler(g)
+}
+
+// ServeHTTP satisfies the http.Handler interface.
+func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	defer func() {
 		if nuke := recover(); nuke != nil {
-			LogWarning("panic: %s %s %s%s: %v", r.RemoteAddr, r.Method, r.Host, r.URL.Path, nuke)
-			// here we skip 3 because we know the last 3 calls are guaranteed:
-			//     0 runtime.Callers
-			//     1 gas.printStack
-			//     2 gas.func·NNN (this func)
-			// that way we can get right to the source of it with less noise
-			printStack(3, 10)
+			log.Printf("panic: %s %s %s%s: %v", req.RemoteAddr, req.Method, req.Host, req.URL.Path, nuke)
 
 			err, ok := nuke.(error)
 			if !ok {
 				err = fmt.Errorf("%v", nuke)
 			}
-			g := &Gas{w: w, Request: r}
-			g.Error(err).Output(500, g)
+			g := &Gas{w: w, Request: req}
+			notifyPanic(g, err)
 		}
 	}()
-	defer r.Body.Close()
+	defer req.Body.Close()
 
 	g := &Gas{
 		w:       w,
-		Request: r,
+		Request: req,
 	}
 
 	now := time.Now()
 
-	// Handle reroute cookie if there is one
-	reroute, err := g.Cookie("_reroute")
-	if reroute != nil {
-		if err == nil {
-			blob, err := base64.StdEncoding.DecodeString(reroute.Value)
+	if values, handlers := r.match(req); handlers != nil {
+		g.args = values
+		g.handlers = append(r.middleware, handlers...)
 
-			if err == nil {
-				g.rerouteInfo = blob
-			} else {
-				Log(Warning, "gas: dispatch reroute: %v", err)
+		code, outputter := g.Continue()
+		if outputter == nil {
+			if code > 0 {
+				g.WriteHeader(code)
 			}
+		} else {
+			outputter.Output(code, g)
 		}
-
-		// Empty the cookie out and toss it back
-		reroute.Value = ""
-		reroute.MaxAge = -1
-
-		g.SetCookie(reroute, nil)
+	} else {
+		http.NotFound(g, g.Request)
 	}
 
 	host, _, _ := net.SplitHostPort(g.Host)
-	router := routers[host]
-	if router == nil {
-		router = default_router
-	}
-	if router == nil {
-		g.Error(fmt.Errorf("no router for domain: %s", host)).Output(404, g)
-		goto handled
-	}
-	if values, handlers := router.match(r); handlers != nil {
-		g.args = values
-		for _, handler := range append(router.middleware, handlers...) {
-			code, outputter := handler(g)
-			if code != 0 {
-				if outputter == nil {
-					if code > 0 {
-						g.WriteHeader(code)
-					}
-				} else {
-					outputter.Output(code, g)
-				}
-				break
-			}
+	remote, _, _ := net.SplitHostPort(g.RemoteAddr)
+	log.Printf("[%s] %15s %7s (%d) %s%s", fmtDuration(time.Now().Sub(now)),
+		remote, g.Method, g.responseCode, host, g.URL.Path)
+}
+
+// Ignition starts the server. Should be called after everything else is set up.
+func (r *Router) Ignition() {
+	now := time.Now()
+	if initFuncs != nil {
+		for _, f := range initFuncs {
+			f()
 		}
-	} else {
-		g.Error(fmt.Errorf("no handler found for path %s", r.URL.Path)).Output(404, g)
 	}
 
-handled:
-	remote, _, _ := net.SplitHostPort(g.RemoteAddr)
-	LogNotice("[%s] %15s %7s (%d) %s%s", fmtDuration(time.Now().Sub(now)),
-		remote, g.Method, g.responseCode, host, g.URL.Path)
+	go handleSignals(sigchan)
+
+	log.Printf("Initialization took %v", time.Now().Sub(now))
+	log.Printf("=== Session: %s =========================", now.Format("2006-01-02 15:04"))
+
+	if Env.FastCGI != "" {
+		var (
+			port          = ":" + strconv.Itoa(Env.Port)
+			parts         = strings.SplitN(Env.FastCGI, ":", 2)
+			network, addr = parts[0], parts[1]
+			l             net.Listener
+			err           error
+			s             = fmt.Sprintf("%s:%s", network, addr)
+		)
+
+		if strings.HasPrefix(network, "unix") {
+			os.Remove(addr)
+			l, err = net.ListenUnix(network, &net.UnixAddr{addr, network})
+		} else {
+			l, err = net.Listen(network, addr+port)
+			s += port
+		}
+		if err != nil {
+			log.Fatalf("gas: fcgi: %v", err)
+		}
+
+		log.Printf("FastCGI listening on %s", s)
+		log.Fatalf("FastCGI: %v", fcgi.Serve(l, r))
+	} else {
+		if Env.Port < 0 && Env.TLSPort < 0 {
+			log.Fatalf("must have at least one of either GAS_PORT or GAS_TLS_PORT set")
+		}
+		if r.Server == nil {
+			r.Server = &http.Server{
+			//ReadTimeout:  60 * time.Second,
+			//WriteTimeout: 10 * time.Second,
+			}
+		}
+
+		r.Server.Handler = r
+
+		c := make(chan error)
+
+		if Env.TLSPort > 0 {
+			go func() {
+				c <- listenTLS(r.Server)
+			}()
+		}
+
+		if Env.Port > 0 {
+			go func() {
+				c <- listen(r.Server)
+			}()
+		}
+
+		log.Fatal(<-c)
+	}
+	exit(0)
 }
 
 func fmtDuration(d time.Duration) string {
@@ -290,12 +362,17 @@ func fmtDuration(d time.Duration) string {
 	}
 }
 
-func fmtStack(skip, count int) *bytes.Buffer {
-	buf := new(bytes.Buffer)
+// number of lines of context to show around panicking code
+const amountOfContext = 5
+
+// format the current goroutine's stack nicely, optionally returning the lines
+// of code around and including the panicking line
+func fmtStack(skip, count int, showSource bool) (source []string, actualLine int, panickingFile string, stack *bytes.Buffer) {
+	stack = new(bytes.Buffer)
 	pcs := make([]uintptr, count)
 	s := runtime.Callers(skip, pcs)
 	pcs = pcs[:s]
-	tw := tabwriter.NewWriter(buf, 4, 8, 1, ' ', 0)
+	tw := tabwriter.NewWriter(stack, 4, 8, 1, ' ', 0)
 
 	for i, pc := range pcs {
 		f := runtime.FuncForPC(pc)
@@ -304,16 +381,117 @@ func fmtStack(skip, count int) *bytes.Buffer {
 		oneUp := filepath.Base(filepath.Dir(path))
 		file := filepath.Join(oneUp, filepath.Base(path))
 
-		fmt.Fprintf(tw, "%2d: %s:%d\t@ 0x%x\t%s\n", i, file, line, pc, name)
+		fmt.Fprintf(tw, "%2d: %s\t(%s:%d)\n", i, name, file, line)
+
+		// if we are returning source code context, check each successive function and
+		// skip runtime/panic ones. The line of code we are looking for is probably
+		// not in the runtime.
+		if showSource && !strings.HasPrefix(name, "runtime.") {
+			// then disable the flag so we don't keep searching
+			showSource = false
+			panickingFile = file
+			f, err := os.Open(path)
+			if err != nil {
+				continue
+			}
+			data, err := ioutil.ReadAll(f)
+			if err != nil {
+				continue
+			}
+			lines := bytes.Split(data, []byte{'\n'})
+			if line > len(lines) {
+				continue
+			}
+
+			actualLine = amountOfContext
+			lower := line - 1 - amountOfContext
+			if lower < 0 {
+				actualLine += lower
+				lower = 0
+			}
+			upper := line - 1 + amountOfContext
+			if upper >= len(lines) {
+				upper = len(lines) - 1
+			}
+
+			source = make([]string, 0, upper-lower)
+			magnitude := int(math.Floor(math.Log10(float64(upper)))) + 1
+			for l := lower; l <= upper; l++ {
+				line := strings.Replace(string(lines[l]), "\t", "    ", -1)
+				source = append(source, fmt.Sprintf("%*d  %s", magnitude, l+1, line))
+			}
+		}
 	}
 	tw.Flush()
 
-	return buf
+	return
 }
 
 func printStack(skip, count int) {
-	if Verbosity > None {
-		buf := fmtStack(skip+1, count)
-		io.Copy(os.Stderr, buf)
+	_, _, _, buf := fmtStack(skip+1, count, false)
+	io.Copy(os.Stderr, buf)
+}
+
+func notifyPanic(g *Gas, err error) {
+	// here we skip 5 because we know the last calls are guaranteed:
+	//     0 runtime.panic
+	//     1 func·NNN (the deferred recover)
+	//     2 runtime.Callers
+	//     3 fmtStack
+	//     4 notifyPanic
+	// that way we can get right to the source of it with less noise
+	source, lineNum, file, stack := fmtStack(5, 10, true)
+
+	g.Header().Set("Content-Type", "text/html; encoding=utf-8")
+	g.WriteHeader(500)
+
+	tmplErr := panicTemplate.Execute(g, &struct {
+		Err    error
+		Stack  string
+		File   string
+		Source []string
+		Line   int
+	}{err, stack.String(), file, source, lineNum})
+
+	if tmplErr != nil {
+		fmt.Fprintln(g, "Error writing panic:", tmplErr)
 	}
 }
+
+var panicTemplate = template.Must(template.New("panic").Parse(`
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>Panic!</title>
+		<style>
+			body {
+				width: 100%;
+				max-width: 800px;
+				margin: 50px auto;
+				font-family: sans-serif;
+			}
+			h1, h2 {
+				text-align: center;
+			}
+			h2 {
+				font-size: 18px;
+			}
+			pre, code {
+				font-size: 13px;
+				font-family: menlo, dejavu sans mono, bitstream vera sans mono, monospace;
+			}
+			.gray {
+				color: #888;
+			}
+		</style>
+	</head>
+	<body>
+		<h1>The server is panicking!</h1>
+		{{ with .Err }}<h2><span class="gray">Error:</span> {{ . }}</h2>{{ end }}
+		<p>Details:</p>
+		<pre>{{ .Stack }}</pre>
+		<p>The offending code in <code>{{ .File }}</code>:</p>
+		<pre>{{ range $i, $v := .Source }}{{ if eq $i $.Line }}<strong>! {{ $v }}</strong>{{ else }}<span class="gray">  {{ $v }}</span>{{ end }}
+{{ end }}</pre>
+	</body>
+</html>`))
