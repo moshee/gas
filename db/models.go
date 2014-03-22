@@ -67,6 +67,7 @@ type NullUint64 struct {
 	Valid  bool
 }
 
+// Scan implements the sql.Scanner interface.
 func (n *NullUint64) Scan(src interface{}) error {
 	if src == nil {
 		n.Uint64, n.Valid = 0, false
@@ -108,7 +109,7 @@ type model struct {
 }
 
 // val must be a pointer to a struct
-func (self model) scan(val reflect.Value, row *sql.Rows, foundCap int) (int, error) {
+func (m model) scan(val reflect.Value, row *sql.Rows, foundCap int) (int, error) {
 	cols, err := row.Columns()
 	if err != nil {
 		return 0, err
@@ -118,7 +119,7 @@ func (self model) scan(val reflect.Value, row *sql.Rows, foundCap int) (int, err
 	// slice. Values will still be appended but it will not have to grow. If
 	// foundCap == 0, nothing special will happen.
 	targetFieldVals := make([]interface{}, 0, foundCap)
-	self.visitAll(&targetFieldVals, &cols, val)
+	m.visitAll(&targetFieldVals, &cols, val)
 	foundCap = len(targetFieldVals)
 
 	return foundCap, row.Scan(targetFieldVals...)
@@ -132,10 +133,10 @@ func (self model) scan(val reflect.Value, row *sql.Rows, foundCap int) (int, err
 // cols is the column names returned in the query.
 //
 // val is the root value that holds the struct waiting to be scanned into.
-func (self model) visitAll(targetFieldVals *[]interface{}, cols *[]string, val reflect.Value) (continueLooking bool) {
+func (m model) visitAll(targetFieldVals *[]interface{}, cols *[]string, val reflect.Value) (continueLooking bool) {
 	var thisField reflect.Value
 
-	for i, field := range self.fields {
+	for i, field := range m.fields {
 		if len(*cols) == 0 {
 			return
 		}
@@ -221,8 +222,8 @@ func newField(s reflect.StructField) (f *field) {
 	return f
 }
 
-func (self *field) match(column string) bool {
-	x := self.name == column || self.originalName == column
+func (f *field) match(column string) bool {
+	x := f.name == column || f.originalName == column
 	//	fmt.Printf("%s (%s) == %s? %v\n", self.name, self.originalName, column, x)
 	return x
 }
@@ -312,10 +313,8 @@ func Query(dest interface{}, query string, args ...interface{}) error {
 		if t.Elem().Kind() != reflect.Struct {
 			if t.Elem().Kind() == reflect.Slice {
 				return querySlice(model, dest, rows)
-			} else {
-				return fmt.Errorf(errNotSliceOrStruct, dest)
 			}
-			return fmt.Errorf(errNotStruct, dest)
+			return fmt.Errorf(errNotSliceOrStruct, dest)
 		}
 		return queryRow(model, dest, rows)
 
@@ -378,8 +377,8 @@ func querySlice(model *model, slice interface{}, rows *sql.Rows) error {
 	return nil
 }
 
-// Recursively populate a destination struct or slice of structs with an
-// arbitrarily deeply nested one-to-many query row set. Check out
+// QueryJoin will recursively populate a destination struct or slice of structs
+// with an arbitrarily deeply nested one-to-many query row set. Check out
 // models_test.go for exactly what this means.
 //
 // Caveats

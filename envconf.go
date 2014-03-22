@@ -47,8 +47,8 @@ var Env struct {
 	FastCGI string
 }
 
-// The prefix append to the field name in Env, e.g. Env.DBName would be
-// populated by the environment variable GAS_DB_NAME.
+// EnvPrefix is the prefix append to the field name in Env, e.g. Env.DBName
+// would be populated by the environment variable GAS_DB_NAME.
 const EnvPrefix = "GAS_"
 
 // EnvConf will populate a pointer to a struct that looks like Env and the

@@ -5,7 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/gob"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"log"
 	"net/http"
 	"strconv"
@@ -70,15 +70,11 @@ func CheckReroute(g *gas.Gas) (int, gas.Outputter) {
 // Recover will try to recover the reroute info stored in the cookie and decode
 // it into dest. If there is no reroute cookie, an error is returned.
 func Recover(g *gas.Gas, dest interface{}) error {
-	cookie, err := g.Cookie("_reroute")
-	if err != nil {
-		return fmt.Errorf("reroute: %v", err)
+	blob := g.Data("_reroute")
+	if blob == nil {
+		return errors.New("reroute: no cookie found")
 	}
-	val, err := base64.StdEncoding.DecodeString(cookie.Value)
-	if err != nil {
-		return fmt.Errorf("reroute: %v", err)
-	}
-	dec := gob.NewDecoder(bytes.NewReader(val))
+	dec := gob.NewDecoder(bytes.NewReader(blob.([]byte)))
 	return dec.Decode(dest)
 }
 

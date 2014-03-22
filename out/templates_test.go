@@ -55,7 +55,7 @@ func TestOutputter(t *testing.T) {
 func TestReroute(t *testing.T) {
 	r := gas.New().Get("/reroute1", func(g *gas.Gas) (int, gas.Outputter) {
 		return 303, Reroute("/reroute2", map[string]string{"test": "ok"})
-	}).Get("/reroute2", func(g *gas.Gas) (int, gas.Outputter) {
+	}).Get("/reroute2", CheckReroute, func(g *gas.Gas) (int, gas.Outputter) {
 		var m map[string]string
 		if err := Recover(g, &m); err != nil {
 			t.Fatal(err)

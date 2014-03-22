@@ -2,4 +2,4 @@ package gas
 
 import "os"
 
-var signalFuncs = make(map[os.Signal]func())
+var signalFuncs = make(map[os.Signal][]func())
