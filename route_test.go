@@ -75,7 +75,7 @@ func TestDispatch(t *testing.T) {
 	}).
 		Get("/test1", func(g *Gas) (int, Outputter) {
 		g.Write([]byte("yes"))
-		return -1, nil
+		return g.Stop()
 	}).
 		Get("/test2", func(g *Gas) (int, Outputter) {
 		g.SetData("something", 6)
@@ -83,21 +83,21 @@ func TestDispatch(t *testing.T) {
 		return g.Continue()
 	}, func(g *Gas) (int, Outputter) {
 		g.Write([]byte(g.Data("something else").(string)))
-		return -1, nil
+		return g.Stop()
 	}).
 		Get("/test3", func(g *Gas) (int, Outputter) {
 		g.SetData("test", 10)
 		return g.Continue()
 	}, func(g *Gas) (int, Outputter) {
 		g.Write([]byte(strconv.Itoa(g.Data("test").(int))))
-		return -1, nil
+		return g.Stop()
 	}, func(g *Gas) (int, Outputter) {
 		g.Write([]byte("nope"))
-		return -1, nil
+		return g.Stop()
 	}).
 		Get("/test4", func(g *Gas) (int, Outputter) {
 		g.Write([]byte(strconv.FormatBool(g.Data("middleware").(bool))))
-		return -1, nil
+		return g.Stop()
 	}).
 		Get("/panic", func(g *Gas) (int, Outputter) {
 		panic("lol")
