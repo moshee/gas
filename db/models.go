@@ -28,7 +28,10 @@ var (
 
 // Env holds the environment variable configuration specific to database connection.
 var Env struct {
-	DBName   string
+	// The database name (currently only "postgres" is supported)
+	DBName string
+
+	// The database connection parameters
 	DBParams string
 }
 

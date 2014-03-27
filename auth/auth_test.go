@@ -1,4 +1,4 @@
-package auth
+package auth_test
 
 import (
 	"encoding/base64"
@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/moshee/gas"
+	"github.com/moshee/gas/auth"
 	"github.com/moshee/gas/db"
 )
 
@@ -63,7 +64,7 @@ func TestAuth(t *testing.T) {
 		}()
 	*/
 	testPass := "hello"
-	hash, salt := NewHash([]byte(testPass))
+	hash, salt := auth.NewHash([]byte(testPass))
 
 	tx, err := db.DB.Begin()
 	if err != nil {
@@ -82,7 +83,7 @@ func TestAuth(t *testing.T) {
 	}
 
 	r := gas.New().Get("/", func(g *gas.Gas) (int, gas.Outputter) {
-		if sess, err := GetSession(g); sess == nil || err != nil {
+		if sess, err := auth.GetSession(g); sess == nil || err != nil {
 			fmt.Fprint(g, "no")
 		} else {
 			if u, err := new(MyUser).byUsername(sess.Username); err != nil {
@@ -93,10 +94,10 @@ func TestAuth(t *testing.T) {
 		}
 		return -1, nil
 	}).Get("/hmac", func(g *gas.Gas) (int, gas.Outputter) {
-		_, err := GetSession(g)
+		_, err := auth.GetSession(g)
 		if err != nil {
 			fmt.Fprint(g, "no")
-			if err != errBadMac {
+			if err != auth.ErrBadMac {
 				t.Fatalf("Expected hmac error, got %v", err)
 			}
 		} else {
@@ -109,14 +110,14 @@ func TestAuth(t *testing.T) {
 			fmt.Fprint(g, "no")
 			return -1, nil
 		}
-		if err = SignIn(g, u); err != nil {
+		if err = auth.SignIn(g, u); err != nil {
 			fmt.Fprint(g, "no")
 		} else {
 			fmt.Fprint(g, "yes")
 		}
 		return -1, nil
 	}).Get("/logout", func(g *gas.Gas) (int, gas.Outputter) {
-		if err := SignOut(g); err != nil {
+		if err := auth.SignOut(g); err != nil {
 			fmt.Fprint(g, "no")
 		} else {
 			fmt.Fprint(g, "yes")
@@ -125,16 +126,20 @@ func TestAuth(t *testing.T) {
 	})
 
 	t.Log("Testing DB session store")
-	UseSessionStore(&DBStore{Env.SessTable})
-	testAuth(t, testPass, r)
-
-	t.Log("Testing FS session store")
-	s, err := NewFileStore()
+	dbs, err := db.NewStore("gas_sessions")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Destroy()
-	UseSessionStore(s)
+	auth.UseSessionStore(dbs)
+	testAuth(t, testPass, r)
+
+	t.Log("Testing FS session store")
+	fss, err := auth.NewFileStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fss.Destroy()
+	auth.UseSessionStore(fss)
 	testAuth(t, testPass, r)
 }
 
@@ -142,7 +147,7 @@ func testAuth(t *testing.T, testPass string, r *gas.Router) {
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
-	hmacKeys = [][]byte{[]byte("super secret key")}
+	auth.AddHMACKey([]byte("super secret key"))
 
 	tester := &authTester{srv, testclient, t}
 	form := make(uri.Values)

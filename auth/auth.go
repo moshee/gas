@@ -16,17 +16,15 @@ import (
 	"sync"
 	"time"
 	"github.com/moshee/gas"
-	"github.com/moshee/gas/db"
 
 	"code.google.com/p/go.crypto/scrypt"
 	"code.google.com/p/go.crypto/sha3"
 )
 
 var (
-	errNoUser        = errors.New("gas: no user has been provided")
-	errBadPassword   = errors.New("invalid username or password")
-	errCookieExpired = errors.New("session cookie expired")
-	errBadMac        = errors.New("HMAC digests don't match")
+	ErrBadPassword   = errors.New("invalid username or password")
+	ErrCookieExpired = errors.New("session cookie expired")
+	ErrBadMac        = errors.New("HMAC digests don't match")
 	hmacKeys         [][]byte
 	store            SessionStore
 )
@@ -45,9 +43,6 @@ var Env struct {
 	// allow for key rotation; the keys will be tried in order from left to
 	// right.
 	CookieAuthKey []byte
-
-	// The name of the database table in which sessions will be stored
-	SessTable string `default:"gas_sessions"`
 
 	// The length of the session ID in bytes
 	SessidLen int `default:"64"`
@@ -68,12 +63,6 @@ func init() {
 
 	if len(Env.CookieAuthKey) > 0 {
 		hmacKeys = bytes.Split(Env.CookieAuthKey, []byte{byte(os.PathListSeparator)})
-	}
-
-	_, err := db.DB.Exec("CREATE TABLE IF NOT EXISTS " + Env.SessTable +
-		" ( id bytea, expires timestamptz, username text )")
-	if err != nil {
-		log.Fatalf("db (init): %v", err)
 	}
 
 }
@@ -107,36 +96,7 @@ type SessionStore interface {
 	Delete(id []byte) error
 }
 
-// DBStore is a session store that stores sessions in a database table.
-type DBStore struct {
-	// The name of the table.
-	Table string
-}
-
-func (s *DBStore) Create(id []byte, expires time.Time, username string) error {
-	_, err := db.DB.Exec("INSERT INTO "+s.Table+" VALUES ( $1, $2, $3 )",
-		id, expires, username)
-
-	return err
-}
-
-func (s *DBStore) Read(id []byte) (*Session, error) {
-	sess := new(Session)
-	err := db.Query(sess, "SELECT * FROM "+s.Table+" WHERE id = $1", id)
-	return sess, err
-}
-
-func (s *DBStore) Update(id []byte) error {
-	exp := time.Now().Add(Env.MaxCookieAge)
-	_, err := db.DB.Exec("UPDATE "+s.Table+" SET expires = $1", exp)
-	return err
-}
-
-func (s *DBStore) Delete(id []byte) error {
-	_, err := db.DB.Exec("DELETE FROM "+s.Table+" WHERE id = $1", id)
-	return err
-}
-
+// NewFileStore makes a new randomly named directory and returns a SessionStore rooted in it.
 func NewFileStore() (*FileStore, error) {
 	tmp, err := ioutil.TempDir("", "gas-sessions")
 	if err != nil {
@@ -192,7 +152,7 @@ func (s *FileStore) Read(id []byte) (*Session, error) {
 	}
 
 	if time.Now().After(sess.Expires) {
-		return nil, errCookieExpired
+		return nil, ErrCookieExpired
 	}
 	return sess, err
 }
@@ -271,7 +231,7 @@ func GetSession(g *gas.Gas) (*Session, error) {
 
 	if time.Now().After(sess.Expires) {
 		SignOut(g)
-		return nil, errCookieExpired
+		return nil, ErrCookieExpired
 	}
 
 	g.SetData(sessKey, sess)
@@ -312,7 +272,7 @@ func SignIn(g *gas.Gas, u User) error {
 		return err
 	}
 	if !VerifyHash([]byte(g.FormValue("pass")), pass, salt) {
-		return errBadPassword
+		return ErrBadPassword
 	}
 
 	username := u.Username()
@@ -418,13 +378,17 @@ func VerifyCookie(cookie *http.Cookie) error {
 		}
 	}
 
-	return errBadMac
+	return ErrBadMac
 }
 
 func hmacSum(plaintext, key, b []byte) []byte {
 	mac := hmac.New(sha3.NewKeccak256, key)
 	mac.Write(plaintext)
 	return mac.Sum(b)
+}
+
+func AddHMACKey(key []byte) {
+	hmacKeys = append([][]byte{key}, hmacKeys...)
 }
 
 // VerifyHash checks if the supplied passphrase matches the expected hash using
