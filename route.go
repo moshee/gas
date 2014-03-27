@@ -233,6 +233,12 @@ func (g *Gas) Continue() (int, Outputter) {
 	return handler(g)
 }
 
+// Stop instructs the request context to stop in the handler chain without
+// writing a response.
+func (g *Gas) Stop() (int, Outputter) {
+	return -1, nil
+}
+
 // ServeHTTP satisfies the http.Handler interface.
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	defer func() {
