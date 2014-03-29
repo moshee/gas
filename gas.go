@@ -6,7 +6,6 @@ package gas
 
 import (
 	"crypto/tls"
-	"flag"
 	"log"
 	"net"
 	"net/http"
@@ -23,8 +22,6 @@ var (
 func init() {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 	signal.Notify(sigchan)
-
-	flag.Parse()
 
 	if err := EnvConf(&Env, EnvPrefix); err != nil {
 		log.Fatalf("envconf: %v", err)
