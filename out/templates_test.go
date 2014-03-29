@@ -10,6 +10,7 @@ import (
 )
 
 func TestOutputter(t *testing.T) {
+	parseTemplates(templateDir)
 	r := gas.New().Get("/htmltest", func(g *gas.Gas) (int, gas.Outputter) {
 		return 200, HTML("a/index", "world")
 	}).

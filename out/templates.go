@@ -66,7 +66,9 @@ var (
 )
 
 func init() {
-	parseTemplates(templateDir)
+	gas.Init(func() {
+		parseTemplates(templateDir)
+	})
 	gas.Hook(syscall.SIGUSR1, func() {
 		parseTemplates(templateDir)
 		log.Printf("Templates reloaded.")
