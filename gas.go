@@ -6,12 +6,17 @@ package gas
 
 import (
 	"crypto/tls"
+	"fmt"
 	"log"
+	"mime"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"path"
+	"sort"
 	"strconv"
+	"strings"
 	"unicode"
 )
 
@@ -101,6 +106,74 @@ func (g *Gas) Data(key string) interface{} {
 // value the Cookie has already will be replaced.
 func (g *Gas) SetCookie(cookie *http.Cookie) {
 	http.SetCookie(g, cookie)
+}
+
+type AcceptHeader struct {
+	Type string
+	Q    float32
+}
+
+type AcceptList []AcceptHeader
+
+func (a AcceptList) Len() int           { return len(a) }
+func (a AcceptList) Less(i, j int) bool { return a[i].Q > a[j].Q }
+func (a AcceptList) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+
+// ParseAcceptHeader parses and sort a list of accepted media types as appears
+// in the client's Accept header. If an error is encountered, ParseAcceptHeader
+// will do the best it can with the rest and return the first error
+// encountered.
+func ParseAcceptHeader(h string) (accepts AcceptList, e error) {
+	types := strings.Split(h, ",")
+	accepts = make(AcceptList, 0, len(types))
+
+	for _, t := range types {
+		mediaType, params, err := mime.ParseMediaType(t)
+		if err != nil {
+			if e == nil {
+				e = fmt.Errorf("ParseAcceptHeader: %v", err)
+			}
+			continue
+		}
+		a := AcceptHeader{Type: mediaType}
+		if q, ok := params["q"]; ok {
+			qval, err := strconv.ParseFloat(q, 32)
+			if err != nil {
+				if e == nil {
+					e = fmt.Errorf("ParseAcceptHeader: %v", err)
+				}
+				continue
+			}
+			a.Q = float32(qval)
+		} else {
+			a.Q = 1.0
+		}
+		accepts = append(accepts, a)
+	}
+
+	sort.Stable(accepts)
+	return
+}
+
+// Wants tries to determine what RFC 1521 media type the client wants in
+// return. If it can't decide, defaults to text/html. Returned media types will
+// be normalized and have any parameters stripped.
+func (g *Gas) Wants() string {
+	accept := g.Request.Header.Get("Accept")
+	if accept == "" {
+		v := mime.TypeByExtension(path.Ext(g.URL.Path))
+		if v == "" {
+			return "text/html"
+		}
+		t, _, _ := mime.ParseMediaType(v)
+		return t
+	}
+
+	a, err := ParseAcceptHeader(accept)
+	if err != nil {
+		log.Print(err)
+	}
+	return a[0].Type
 }
 
 // Hook registers a func to run whenever the specified signal is recieved. If
