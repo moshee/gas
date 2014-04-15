@@ -217,6 +217,17 @@ func (r *Router) Delete(pattern string, handlers ...Handler) *Router {
 	return r.Add(pattern, "DELETE", handlers...)
 }
 
+// StaticHandler adds a handler on '/static' that serves static files from
+// './static' (relative to the server binary).
+func (r *Router) StaticHandler() *Router {
+	fs := http.FileServer(http.Dir("./static"))
+	fs = http.StripPrefix("/static", fs)
+	return r.Get("/static/{file}", func(g *Gas) (int, Outputter) {
+		fs.ServeHTTP(g, g.Request)
+		return g.Stop()
+	})
+}
+
 // Continue instructs the request context to advance to the next handler in the
 // chain. It is an error to call Continue when no more handlers exist down the
 // chain.
