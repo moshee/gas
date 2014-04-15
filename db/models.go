@@ -7,6 +7,7 @@ import (
 	"log"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/lib/pq"
@@ -524,7 +525,7 @@ func getDests(t reflect.Type) (dests []interface{}, idIndexes []int, err error) 
 
 			switch fieldType.Kind() {
 			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-				if field.Name == "Id" {
+				if strings.ToLower(field.Name) == "id" {
 					idIndexes = append(idIndexes, i)
 				}
 				nullable = new(sql.NullInt64)
