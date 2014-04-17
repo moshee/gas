@@ -241,7 +241,7 @@ func GetSession(g *gas.Gas) (*Session, error) {
 
 // SignIn signs the user in by creating a new session and setting a cookie on
 // the client.
-func SignIn(g *gas.Gas, u User) error {
+func SignIn(g *gas.Gas, u User, password string) error {
 	// already signed in?
 	sess, _ := GetSession(g)
 	if sess != nil {
@@ -271,7 +271,7 @@ func SignIn(g *gas.Gas, u User) error {
 	if err != nil {
 		return err
 	}
-	if !VerifyHash([]byte(g.FormValue("pass")), pass, salt) {
+	if !VerifyHash([]byte(password), pass, salt) {
 		return ErrBadPassword
 	}
 
@@ -283,9 +283,6 @@ func SignIn(g *gas.Gas, u User) error {
 		return err
 	}
 
-	// TODO: determine if setting the path to / is always what we want. If it's
-	// set to anything other than /, then only requests to that path will
-	// include the cookie in the header (the browser restricts this).
 	cookie := &http.Cookie{
 		Name:     "s",
 		Path:     "/",
