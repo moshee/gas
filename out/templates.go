@@ -286,8 +286,7 @@ func (o *templateOutputter) Output(code int, g *gas.Gas) {
 						// closure.
 						if i < len(funcs)-1 {
 							funcs[i+1]()
-							layouts[i+1].Execute(w, o.data)
-							return "", nil
+							return "", layouts[i+1].Execute(w, o.data)
 						}
 						return "", t.Execute(w, o.data)
 					}
@@ -298,14 +297,15 @@ func (o *templateOutputter) Output(code int, g *gas.Gas) {
 			})(n); err != nil {
 				log.Printf("Render: Layouts: %v", err)
 				g.WriteHeader(500)
-				fmt.Fprint(w, err.Error())
-				return
+				fmt.Fprint(w, err)
 			}
 		}
 
 		g.WriteHeader(code)
 		funcs[0]()
-		layouts[0].Execute(w, o.data)
+		if err := layouts[0].Execute(w, o.data); err != nil {
+			fmt.Fprint(w, err)
+		}
 		return
 	}
 
