@@ -111,14 +111,14 @@ func parseTemplates(base string) {
 		}
 
 		glob := filepath.Join(path, "*.tmpl")
-		log.Printf("adding templates in %s", glob)
 		files, err := filepath.Glob(glob)
 		if err != nil {
 			return err
 		}
 
+		log.Printf("%d template file(s) in %s", len(files), path)
+
 		if len(files) == 0 {
-			log.Printf("no template files in %s", path)
 			return nil
 		}
 
