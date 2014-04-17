@@ -13,6 +13,10 @@ import (
 	"github.com/moshee/gas"
 )
 
+var (
+	ErrNoReroute = errors.New("reroute: no cookie found")
+)
+
 type jsonOutputter struct {
 	data interface{}
 }
@@ -72,7 +76,7 @@ func CheckReroute(g *gas.Gas) (int, gas.Outputter) {
 func Recover(g *gas.Gas, dest interface{}) error {
 	blob := g.Data("_reroute")
 	if blob == nil {
-		return errors.New("reroute: no cookie found")
+		return ErrNoReroute
 	}
 	dec := gob.NewDecoder(bytes.NewReader(blob.([]byte)))
 	return dec.Decode(dest)
@@ -101,7 +105,7 @@ func (o *rerouteOutputter) Output(code int, g *gas.Gas) {
 	}
 
 	g.SetCookie(&http.Cookie{
-		Path:     o.path,
+		Path:     "/",
 		Name:     "_reroute",
 		Value:    base64.StdEncoding.EncodeToString(cookieVal),
 		HttpOnly: true,
