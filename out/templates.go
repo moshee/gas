@@ -41,6 +41,12 @@ var (
 		"raw": func(s string) template.HTML {
 			return template.HTML(s)
 		},
+		"rawattr": func(s string) template.HTMLAttr {
+			return template.HTMLAttr(s)
+		},
+		"rawurl": func(s string) template.URL {
+			return template.URL(s)
+		},
 		"markdown": markdown,
 		"smarkdown": func(s interface{}) (template.HTML, error) {
 			switch v := s.(type) {
