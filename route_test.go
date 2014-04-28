@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/moshee/gas/testutil"
+	"ktkr.us/pkg/gas/testutil"
 )
 
 func mapeq(m1, m2 map[string]string) bool {

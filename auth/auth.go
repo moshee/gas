@@ -15,7 +15,7 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
-	"github.com/moshee/gas"
+	"ktkr.us/pkg/gas"
 
 	"code.google.com/p/go.crypto/scrypt"
 	"code.google.com/p/go.crypto/sha3"

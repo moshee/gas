@@ -5,8 +5,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/moshee/gas"
-	"github.com/moshee/gas/testutil"
+	"ktkr.us/pkg/gas"
+	"ktkr.us/pkg/gas/testutil"
 )
 
 func TestOutputter(t *testing.T) {

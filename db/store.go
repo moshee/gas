@@ -3,7 +3,7 @@ package db
 import (
 	"time"
 
-	"github.com/moshee/gas/auth"
+	"ktkr.us/pkg/gas/auth"
 )
 
 func NewStore(table string) (*Store, error) {

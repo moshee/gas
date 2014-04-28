@@ -7,7 +7,7 @@ import (
 	"time"
 
 	_ "github.com/lib/pq"
-	"github.com/moshee/gas"
+	"ktkr.us/pkg/gas"
 )
 
 type Tester struct {

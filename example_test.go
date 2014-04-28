@@ -3,10 +3,10 @@ package gas_test
 import (
 	"reflect"
 
-	"github.com/moshee/gas"
-	"github.com/moshee/gas/auth"
-	"github.com/moshee/gas/db"
-	"github.com/moshee/gas/out"
+	"ktkr.us/pkg/gas"
+	"ktkr.us/pkg/gas/auth"
+	"ktkr.us/pkg/gas/db"
+	"ktkr.us/pkg/gas/out"
 )
 
 type T struct{ Id int }

@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/moshee/gas"
+	"ktkr.us/pkg/gas"
 )
 
 var (

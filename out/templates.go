@@ -15,8 +15,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/moshee/gas"
 	md "github.com/russross/blackfriday"
+	"ktkr.us/pkg/gas"
 )
 
 // Each module has one associated template. It contains all of the templates

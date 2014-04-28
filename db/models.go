@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/lib/pq"
-	"github.com/moshee/gas"
+	"ktkr.us/pkg/gas"
 )
 
 var (

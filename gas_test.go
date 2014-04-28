@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/moshee/gas/testutil"
+	"ktkr.us/pkg/gas/testutil"
 )
 
 var acceptTests = []*testutil.Test{

@@ -11,9 +11,9 @@ import (
 	uri "net/url"
 	"testing"
 
-	"github.com/moshee/gas"
-	"github.com/moshee/gas/auth"
-	"github.com/moshee/gas/db"
+	"ktkr.us/pkg/gas"
+	"ktkr.us/pkg/gas/auth"
+	"ktkr.us/pkg/gas/db"
 )
 
 var testclient *http.Client
