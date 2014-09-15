@@ -36,7 +36,7 @@ func (s *Store) Read(id []byte) (*auth.Session, error) {
 
 func (s *Store) Update(id []byte) error {
 	exp := time.Now().Add(auth.Env.MaxCookieAge)
-	_, err := DB.Exec("UPDATE "+s.table+" SET expires = $1", exp)
+	_, err := DB.Exec("UPDATE "+s.table+" SET expires = $1 WHERE id = $2", exp, id)
 	return err
 }
 
