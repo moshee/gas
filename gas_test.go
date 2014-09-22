@@ -2,8 +2,13 @@ package gas
 
 import (
 	"fmt"
+	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"reflect"
+	"strconv"
 	"testing"
+	"time"
 
 	"ktkr.us/pkg/gas/testutil"
 )
@@ -32,4 +37,47 @@ func TestAccept(t *testing.T) {
 	for _, test := range acceptTests {
 		test.Test(t, srv)
 	}
+}
+
+type T struct {
+	s string
+}
+
+func (t *T) UnmarshalText(b []byte) error {
+	t.s = string(b) + " lmao"
+	return nil
+}
+
+type unmarshalFormTest struct {
+	Int    int
+	String string
+	Time   time.Time
+	Float  float64   `form:"f"`
+	Time2  time.Time `form:"t" timeFormat:"Mon, 02 Jan 2006 15:04:05 MST"`
+	Bool   bool
+	T      *T
+}
+
+func TestUnmarshalForm(t *testing.T) {
+	now := time.Now()
+	now1123 := url.QueryEscape(now.Format(time.RFC1123))
+	nowUnix := url.QueryEscape(strconv.FormatInt(now.Unix(), 10))
+
+	expected := unmarshalFormTest{42, "asdf", now, 3.1415, now, true, &T{"ayy lmao"}}
+
+	r := New().Get("/", func(g *Gas) (int, Outputter) {
+		var v unmarshalFormTest
+		if err := UnmarshalForm(&v, g); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(v, expected) {
+			t.Fatal("got: %#v, expected: %#v", v, expected)
+		}
+		return g.Stop()
+	})
+
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	http.Get(srv.URL + "?Int=42&String=asdf&Time=" + nowUnix + "&f=3.1415&t=" + now1123 + "&Bool=1&T=ayy")
 }

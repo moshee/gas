@@ -6,6 +6,8 @@ package gas
 
 import (
 	"crypto/tls"
+	"encoding"
+	"errors"
 	"fmt"
 	"log"
 	"mime"
@@ -14,9 +16,11 @@ import (
 	"os"
 	"os/signal"
 	"path"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 )
 
@@ -291,4 +295,106 @@ func exit(code int) {
 		f()
 	}
 	os.Exit(code)
+}
+
+var (
+	errNotStructPointer = errors.New("UnmarshalForm: dst must be a pointer to a struct value")
+	errUnsupportedKind  = "UnmarshalForm: cannot unmarshal form value into field '%s' of type %T"
+)
+
+// UnmarshalForm pulls values from a request's form (multipart or query string)
+// and places them into a struct, like encoding/json. It honors
+// encoding.TextUnmarshaler, but the part about copying the bytes is
+// irrelevant.
+//
+// A "form" struct tag can be used to refer to any named field in the form for
+// a given struct field.
+//
+// If the field is a time.Time, it will try to parse it as a UNIX timestamp
+// unless a "timeFormat" tag is present, in which case it will parse the time
+// using that.
+func UnmarshalForm(dst interface{}, g *Gas) error {
+	dv := reflect.ValueOf(dst)
+	if dv.Kind() != reflect.Ptr {
+		return errNotStructPointer
+	}
+	dv = dv.Elem()
+	if dv.Kind() != reflect.Struct {
+		return errNotStructPointer
+	}
+	dt := dv.Type()
+
+	for i := 0; i < dv.NumField(); i++ {
+		field := dv.Field(i)
+		tf := dt.Field(i)
+		key := tf.Tag.Get("form")
+		if key == "" {
+			key = tf.Name
+		}
+		val := g.FormValue(key)
+
+		// handle common non-core types
+		fi := field.Interface()
+		switch v := fi.(type) {
+		case encoding.TextUnmarshaler:
+			err := v.UnmarshalText([]byte(val))
+			if err != nil {
+				return err
+			}
+			continue
+		case time.Time:
+			format := tf.Tag.Get("timeFormat")
+			var t time.Time
+			if format == "" {
+				n, err := strconv.ParseInt(val, 10, 64)
+				if err != nil {
+					return err
+				}
+				t = time.Unix(n, 0)
+			} else {
+				var err error
+				t, err = time.Parse(format, val)
+				if err != nil {
+					return err
+				}
+			}
+			field.Set(reflect.ValueOf(t))
+			continue
+		}
+
+		// handle core types
+		switch field.Kind() {
+		case reflect.Bool:
+			x, err := strconv.ParseBool(val)
+			if err != nil {
+				return err
+			}
+			field.SetBool(x)
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			x, err := strconv.ParseInt(val, 10, 64)
+			if err != nil {
+				return err
+			}
+			field.SetInt(x)
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			x, err := strconv.ParseUint(val, 10, 64)
+			if err != nil {
+				return err
+			}
+			field.SetUint(x)
+		case reflect.Float32, reflect.Float64:
+			x, err := strconv.ParseFloat(val, 64)
+			if err != nil {
+				return err
+			}
+			field.SetFloat(x)
+		case reflect.String:
+			field.SetString(val)
+		//case reflect.Slice: // byte slice
+		default:
+			return fmt.Errorf(errUnsupportedKind, key, fi)
+		}
+	}
+
+	return nil
 }
