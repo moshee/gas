@@ -47,21 +47,8 @@ var (
 		"rawurl": func(s string) template.URL {
 			return template.URL(s)
 		},
-		"markdown": markdown,
-		"smarkdown": func(s interface{}) (template.HTML, error) {
-			switch v := s.(type) {
-			case sql.NullString:
-				if v.Valid {
-					return markdown([]byte(v.String)), nil
-				}
-				return template.HTML(""), nil
-
-			case string:
-				return markdown([]byte(v)), nil
-			}
-
-			return template.HTML(""), errors.New("non-string type passed into smarkdown")
-		},
+		"markdown":  markdown,
+		"smarkdown": smarkdown,
 		"datetime": func(t time.Time) string {
 			return t.Format("2006-01-02T15:04:05Z")
 		},
@@ -98,6 +85,22 @@ func TemplateFunc(name string, f interface{}) {
 // return safe HTML of rendered markdown
 func markdown(in []byte) template.HTML {
 	return template.HTML(md.Markdown(in, markdownRenderer, markdownExts))
+}
+
+// return safe HTML of markdown rendered from either a string or sql.NullString
+func smarkdown(s interface{}) (template.HTML, error) {
+	switch v := s.(type) {
+	case sql.NullString:
+		if v.Valid {
+			return markdown([]byte(v.String)), nil
+		}
+		return template.HTML(""), nil
+
+	case string:
+		return markdown([]byte(v)), nil
+	}
+
+	return template.HTML(""), errors.New("non-string type passed into smarkdown")
 }
 
 // recursively parse templates in a directory
