@@ -11,6 +11,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path"
@@ -98,6 +99,14 @@ func (g *Gas) Data(key string) interface{} {
 		return g.data[key]
 	}
 	return nil
+}
+
+// SetFilename adds a Content-Disposition header to the response instructing
+// the browser to use the given filename for the resource.
+func (g *Gas) SetFilename(filename string) {
+	encoded := strings.Replace(url.QueryEscape(filename), "+", "%20", -1)
+	disposition := fmt.Sprintf("filename*=UTF-8''%s; filename=%s", encoded, encoded)
+	g.Header().Add("Content-Disposition", disposition)
 }
 
 // SetCookie sets a cookie in the response, adding an HMAC digest to the end of
