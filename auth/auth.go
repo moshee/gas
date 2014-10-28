@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
 	"ktkr.us/pkg/gas"
 
 	"code.google.com/p/go.crypto/scrypt"
@@ -25,6 +26,7 @@ var (
 	ErrBadPassword   = errors.New("invalid username or password")
 	ErrCookieExpired = errors.New("session cookie expired")
 	ErrBadMac        = errors.New("HMAC digests don't match")
+	ErrNoStore       = errors.New("no session store is configured")
 	hmacKeys         [][]byte
 	store            SessionStore
 )
@@ -191,6 +193,9 @@ func (s *FileStore) Delete(id []byte) error {
 // GetSession figures out the session from the session cookie in the request, or
 // just return the session if that's been done already.
 func GetSession(g *gas.Gas) (*Session, error) {
+	if store == nil {
+		return nil, ErrNoStore
+	}
 	const sessKey = "_gas_session"
 	if sessBox := g.Data(sessKey); sessBox != nil {
 		if sess, ok := sessBox.(*Session); ok {
@@ -242,6 +247,9 @@ func GetSession(g *gas.Gas) (*Session, error) {
 // SignIn signs the user in by creating a new session and setting a cookie on
 // the client.
 func SignIn(g *gas.Gas, u User, password string) error {
+	if store == nil {
+		return ErrNoStore
+	}
 	// already signed in?
 	sess, _ := GetSession(g)
 	if sess != nil {
@@ -300,6 +308,9 @@ func SignIn(g *gas.Gas, u User, password string) error {
 
 // SignOut signs the user out, destroying the associated session and cookie.
 func SignOut(g *gas.Gas) error {
+	if store == nil {
+		return ErrNoStore
+	}
 	cookie, err := g.Cookie("s")
 	if err != nil {
 		return err
