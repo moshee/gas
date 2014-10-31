@@ -322,7 +322,7 @@ var (
 // If the field is a time.Time, it will try to parse it as a UNIX timestamp
 // unless a "timeFormat" tag is present, in which case it will parse the time
 // using that.
-func UnmarshalForm(dst interface{}, g *Gas) error {
+func (g *Gas) UnmarshalForm(dst interface{}) error {
 	dv := reflect.ValueOf(dst)
 	if dv.Kind() != reflect.Ptr {
 		return errNotStructPointer
@@ -398,7 +398,11 @@ func UnmarshalForm(dst interface{}, g *Gas) error {
 			}
 			field.SetFloat(x)
 		case reflect.String:
-			field.SetString(val)
+			s, err := url.QueryUnescape(val)
+			if err != nil {
+				return err
+			}
+			field.SetString(s)
 		//case reflect.Slice: // byte slice
 		default:
 			return fmt.Errorf(errUnsupportedKind, key, fi)
