@@ -390,7 +390,7 @@ func VerifyCookie(cookie *http.Cookie) error {
 }
 
 func hmacSum(plaintext, key, b []byte) []byte {
-	mac := hmac.New(sha3.NewKeccak256, key)
+	mac := hmac.New(sha3.New256, key)
 	mac.Write(plaintext)
 	return mac.Sum(b)
 }
