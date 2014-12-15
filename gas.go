@@ -321,7 +321,10 @@ var (
 //
 // If the field is a time.Time, it will try to parse it as a UNIX timestamp
 // unless a "timeFormat" tag is present, in which case it will parse the time
-// using that.
+// using that. If the field is a numeric type, an empty string as the field
+// value will become a zero value. If you wish to customize this behavior,
+// either specify the field as a string and parse it yourself, or make a type
+// that satisfies TextUnmarshaler.
 func (g *Gas) UnmarshalForm(dst interface{}) error {
 	dv := reflect.ValueOf(dst)
 	if dv.Kind() != reflect.Ptr {
@@ -380,23 +383,35 @@ func (g *Gas) UnmarshalForm(dst interface{}) error {
 			}
 			field.SetBool(x)
 		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-			x, err := strconv.ParseInt(val, 10, 64)
-			if err != nil {
-				return err
+			if val == "" {
+				field.SetInt(0)
+			} else {
+				x, err := strconv.ParseInt(val, 10, 64)
+				if err != nil {
+					return err
+				}
+				field.SetInt(x)
 			}
-			field.SetInt(x)
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-			x, err := strconv.ParseUint(val, 10, 64)
-			if err != nil {
-				return err
+			if val == "" {
+				field.SetUint(0)
+			} else {
+				x, err := strconv.ParseUint(val, 10, 64)
+				if err != nil {
+					return err
+				}
+				field.SetUint(x)
 			}
-			field.SetUint(x)
 		case reflect.Float32, reflect.Float64:
-			x, err := strconv.ParseFloat(val, 64)
-			if err != nil {
-				return err
+			if val == "" {
+				field.SetFloat(0.0)
+			} else {
+				x, err := strconv.ParseFloat(val, 64)
+				if err != nil {
+					return err
+				}
+				field.SetFloat(x)
 			}
-			field.SetFloat(x)
 		case reflect.String:
 			s, err := url.QueryUnescape(val)
 			if err != nil {

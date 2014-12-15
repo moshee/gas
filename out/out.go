@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 
 	"ktkr.us/pkg/gas"
 )
@@ -59,6 +60,8 @@ func CheckReroute(g *gas.Gas) (int, gas.Outputter) {
 			} else {
 				log.Println("gas: dispatch reroute:", err)
 			}
+		} else {
+			log.Println("gas: reroute cookie:", err)
 		}
 
 		// Empty the cookie out and toss it back
@@ -88,7 +91,7 @@ type rerouteOutputter struct {
 }
 
 func (o *rerouteOutputter) Output(code int, g *gas.Gas) {
-	var cookieVal []byte
+	var cookieVal string
 
 	if o.data != nil {
 		buf := new(bytes.Buffer)
@@ -101,13 +104,14 @@ func (o *rerouteOutputter) Output(code int, g *gas.Gas) {
 			return
 		}
 
-		cookieVal = buf.Bytes()
+		cookieVal = base64.StdEncoding.EncodeToString(buf.Bytes())
 	}
 
 	g.SetCookie(&http.Cookie{
 		Path:     "/",
 		Name:     "_reroute",
-		Value:    base64.StdEncoding.EncodeToString(cookieVal),
+		Value:    cookieVal,
+		Expires:  time.Now().Add(60 * time.Second),
 		HttpOnly: true,
 	})
 

@@ -110,7 +110,7 @@ func TestAuth(t *testing.T) {
 			fmt.Fprint(g, "no")
 			return -1, nil
 		}
-		if err = auth.SignIn(g, u); err != nil {
+		if err = auth.SignIn(g, u, g.FormValue("pass")); err != nil {
 			fmt.Fprint(g, "no")
 		} else {
 			fmt.Fprint(g, "yes")

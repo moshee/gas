@@ -49,13 +49,14 @@ func (t *T) UnmarshalText(b []byte) error {
 }
 
 type unmarshalFormTest struct {
-	Int    int
-	String string
-	Time   time.Time
-	Float  float64   `form:"f"`
-	Time2  time.Time `form:"t" timeFormat:"Mon, 02 Jan 2006 15:04:05 MST"`
-	Bool   bool
-	T      *T
+	Int         int
+	String      string
+	Time        time.Time
+	Float       float64   `form:"f"`
+	Time2       time.Time `form:"t" timeFormat:"Mon, 02 Jan 2006 15:04:05 MST"`
+	EmptyNumber uint64
+	Bool        bool
+	T           *T
 }
 
 func TestUnmarshalForm(t *testing.T) {
@@ -63,11 +64,11 @@ func TestUnmarshalForm(t *testing.T) {
 	now1123 := url.QueryEscape(now.Format(time.RFC1123))
 	nowUnix := url.QueryEscape(strconv.FormatInt(now.Unix(), 10))
 
-	expected := unmarshalFormTest{42, "asdf", now, 3.1415, now, true, &T{"ayy lmao"}}
+	expected := unmarshalFormTest{42, "asdf", now, 3.1415, now, 0, true, &T{"ayy lmao"}}
 
 	r := New().Get("/", func(g *Gas) (int, Outputter) {
 		var v unmarshalFormTest
-		if err := UnmarshalForm(&v, g); err != nil {
+		if err := g.UnmarshalForm(&v); err != nil {
 			t.Fatal(err)
 		}
 		if !reflect.DeepEqual(v, expected) {

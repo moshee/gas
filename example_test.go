@@ -33,7 +33,7 @@ func ExampleRouter() {
 	// JSON REST? Sure.
 	login := func(g *gas.Gas) (int, gas.Outputter) {
 		u := new(myUser).byUsername(g.FormValue("user"))
-		if err := auth.SignIn(g, u); err != nil {
+		if err := auth.SignIn(g, u, g.FormValue("pass")); err != nil {
 			return 403, out.JSON(M{"error": err.Error()})
 		} else {
 			return 204, nil
