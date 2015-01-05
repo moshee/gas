@@ -135,8 +135,12 @@ func Reroute(path string, data interface{}) gas.Outputter {
 // will provide the template for a 404 error. The template will be rendered
 // with a *ErrorInfo as the data binding.
 func Error(g *gas.Gas, err error) gas.Outputter {
+	e := ""
+	if err != nil {
+		e = err.Error()
+	}
 	return &ErrorInfo{
-		Err:  err.Error(),
+		Err:  e,
 		Path: g.URL.Path,
 		Host: g.Host,
 	}
