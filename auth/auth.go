@@ -18,8 +18,8 @@ import (
 
 	"ktkr.us/pkg/gas"
 
-	"code.google.com/p/go.crypto/scrypt"
-	"code.google.com/p/go.crypto/sha3"
+	"golang.org/x/crypto/scrypt"
+	"golang.org/x/crypto/sha3"
 )
 
 var (
