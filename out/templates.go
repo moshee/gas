@@ -32,7 +32,7 @@ var (
 		md.EXTENSION_FENCED_CODE | md.EXTENSION_STRIKETHROUGH |
 		md.EXTENSION_FOOTNOTES
 
-	markdownRenderer = md.HtmlRenderer(md.HTML_GITHUB_BLOCKCODE|md.HTML_USE_SMARTYPANTS, "", "")
+	markdownRenderer = md.HtmlRenderer(md.HTML_USE_SMARTYPANTS, "", "")
 
 	globalFuncmap = template.FuncMap{
 		"string": func(b []byte) string {
