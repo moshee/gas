@@ -344,6 +344,9 @@ func (g *Gas) UnmarshalForm(dst interface{}) error {
 			key = tf.Name
 		}
 		val := g.FormValue(key)
+		if len(val) == 0 {
+			continue
+		}
 
 		// handle common non-core types
 		fi := field.Interface()
