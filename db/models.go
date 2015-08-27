@@ -43,11 +43,13 @@ func init() {
 	}
 
 	if Env.DBName == "" {
-		log.Fatalf("%sDB_NAME is not set", gas.EnvPrefix)
+		log.Printf("%sDB_NAME is not set, database support disabled", gas.EnvPrefix)
+		return
 	}
 
 	if Env.DBParams == "" {
-		log.Fatalf("%sDB_PARAMS is not set", gas.EnvPrefix)
+		log.Printf("%sDB_PARAMS is not set, database support disabled", gas.EnvPrefix)
+		return
 	}
 
 	DB, err = sql.Open(Env.DBName, Env.DBParams)
