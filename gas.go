@@ -189,6 +189,67 @@ func (g *Gas) Wants() string {
 	return a[0].Type
 }
 
+type UA struct {
+	Name    string
+	Version string
+	Comment string
+}
+
+func ParseUserAgents(ua string) (list []UA) {
+	if ua == "" {
+		return
+	}
+
+	var (
+		fields      = strings.Fields(ua)
+		start       int
+		commentNest int
+	)
+
+	for i, field := range fields {
+		if field == "" {
+			continue
+		}
+		if strings.HasPrefix(field, "(") {
+			if commentNest == 0 {
+				start = i
+			}
+			commentNest++
+		} else if strings.HasSuffix(field, ")") {
+			commentNest--
+			if commentNest < 0 {
+				commentNest = 0
+				continue
+			}
+			if commentNest == 0 {
+				commentstr := strings.Join(fields[start:i+1], " ")
+				commentstr = commentstr[1 : len(commentstr)-1]
+				if len(list) > 0 {
+					list[len(list)-1].Comment = commentstr
+				}
+				continue
+			}
+		}
+		if commentNest == 0 {
+			nameversion := strings.SplitN(field, "/", 2)
+			if len(nameversion) != 2 && len(list) > 0 {
+				list[len(list)-1].Version += " " + field
+			} else {
+				list = append(list, UA{Name: nameversion[0], Version: nameversion[1]})
+			}
+		}
+	}
+
+	return
+}
+
+// UserAgents returns a slice of the user agents listed in the request's
+// User-Agent header, in the format defined by RFC 2616. If no User-Agent
+// header is present, an empty slice is returned.
+func (g *Gas) UserAgents() []UA {
+	return ParseUserAgents(g.Request.Header.Get("User-Agent"))
+}
+
 // Hook registers a func to run whenever the specified signal is recieved. If
 // multiple funcs are registered under the same signal, they will be executed
 // in the order they were added.

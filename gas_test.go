@@ -82,3 +82,49 @@ func TestUnmarshalForm(t *testing.T) {
 
 	http.Get(srv.URL + "?Int=42&String=asdf&Time=" + nowUnix + "&f=3.1415&t=" + now1123 + "&Bool=1&T=ayy")
 }
+
+func TestUserAgents(t *testing.T) {
+	tests := []struct {
+		str string
+		uas []UA
+	}{
+		{
+			"",
+			[]UA{},
+		},
+		{
+			"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2227.0 Safari/537.36",
+			[]UA{{"Mozilla", "5.0", "X11; Linux x86_64"}, {"AppleWebKit", "537.36", "KHTML, like Gecko"}, {"Chrome", "41.0.2227.0", ""}, {"Safari", "537.36", ""}},
+		},
+		{
+			"ELinks/0.9.3 (textmode; Linux 2.6.9-kanotix-8 i686; 127x41)",
+			[]UA{{"ELinks", "0.9.3", "textmode; Linux 2.6.9-kanotix-8 i686; 127x41"}},
+		},
+		{
+			"Mozilla/5.0 (compatible; MSIE 8.0; Windows NT 6.1; Trident/4.0; GTB7.4; InfoPath.2; SV1; .NET CLR 3.3.69573; WOW64; en-US)",
+			[]UA{{"Mozilla", "5.0", "compatible; MSIE 8.0; Windows NT 6.1; Trident/4.0; GTB7.4; InfoPath.2; SV1; .NET CLR 3.3.69573; WOW64; en-US"}},
+		},
+		{
+			"Twitterbot/1.0",
+			[]UA{{"Twitterbot", "1.0", ""}},
+		},
+		{
+			"Galaxy/1.0 [en] (Mac OS X 10.5.6; U; en)",
+			[]UA{{"Galaxy", "1.0 [en]", "Mac OS X 10.5.6; U; en"}},
+		},
+		{
+			"Mozilla/4.0 (compatible; MSIE 7.0; Windows NT 5.1; Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1; SV1) ; .NET CLR 1.0.3705; .NET CLR 1.1.4322; Media Center PC 4.0; .NET CLR 2.0.50727; InfoPath.1; GreenBrowser)",
+			[]UA{{"Mozilla", "4.0", "compatible; MSIE 7.0; Windows NT 5.1; Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1; SV1) ; .NET CLR 1.0.3705; .NET CLR 1.1.4322; Media Center PC 4.0; .NET CLR 2.0.50727; InfoPath.1; GreenBrowser"}},
+		},
+	}
+
+	for _, test := range tests {
+		uas := ParseUserAgents(test.str)
+		if len(uas) == 0 && len(test.uas) == 0 {
+			continue
+		}
+		if !reflect.DeepEqual(uas, test.uas) {
+			t.Fatalf("got: %#v, expected: %#v", uas, test.uas)
+		}
+	}
+}
