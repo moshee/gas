@@ -382,6 +382,10 @@ func (g *Gas) UnmarshalForm(dst interface{}) error {
 		case reflect.Bool:
 			x, err := strconv.ParseBool(val)
 			if err != nil {
+				if val == "on" {
+					field.SetBool(true)
+					break
+				}
 				return err
 			}
 			field.SetBool(x)
