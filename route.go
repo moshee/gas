@@ -312,7 +312,11 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 
 	host, _, _ := net.SplitHostPort(g.Host)
-	remote, _, _ := net.SplitHostPort(g.RemoteAddr)
+
+	remote := g.Request.Header.Get("X-Forwarded-For")
+	if remote == "" {
+		remote, _, _ = net.SplitHostPort(g.RemoteAddr)
+	}
 	log.Printf("[%s] %15s %7s (%d) %s%s", fmtDuration(time.Now().Sub(now)),
 		remote, g.Method, g.responseCode, host, g.URL.Path)
 }
