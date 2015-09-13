@@ -18,6 +18,8 @@ import (
 	"strings"
 	"text/tabwriter"
 	"time"
+
+	"ktkr.us/pkg/vfs/bindata"
 )
 
 // A Handler can be used as a request handler for a Router.
@@ -218,15 +220,35 @@ func (r *Router) Delete(pattern string, handlers ...Handler) *Router {
 }
 
 // StaticHandler adds a handler on '/static' that serves static files from
-// './static' (relative to the server binary).
-func (r *Router) StaticHandler() *Router {
-	fs := http.FileServer(http.Dir("./static"))
-	fs = http.StripPrefix("/static", fs)
+// the given path (relative to the working directory). If the given path is an
+// empty string and files have been registered in package bindata, that will be
+// used instead of the physical filesystem. Otherwise, no handlers are added to
+// the router.
+func (r *Router) StaticHandler(path string) *Router {
+	var fs http.Handler
+	if path != "" {
+		path = filepath.Join(path, "static")
+		fs = http.FileServer(http.Dir(path))
+		fs = http.StripPrefix("/static", fs)
+	} else if bindata.Root != nil {
+		fs = http.FileServer(bindata.Root)
+	} else {
+		return r
+	}
 	return r.Get("/static/{file}", func(g *Gas) (int, Outputter) {
 		fs.ServeHTTP(g, g.Request)
 		return g.Stop()
 	})
 }
+
+/*
+func insertPrefix(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.URL.Path = path.Join("static", r.URL.Path)
+		h.ServeHTTP(w, r)
+	})
+}
+*/
 
 // Continue instructs the request context to advance to the next handler in the
 // chain. It is an error to call Continue when no more handlers exist down the

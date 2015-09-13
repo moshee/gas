@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -17,6 +18,11 @@ import (
 
 	md "github.com/russross/blackfriday"
 	"ktkr.us/pkg/gas"
+	"ktkr.us/pkg/vfs"
+)
+
+const (
+	templateDir = "templates"
 )
 
 // Each module has one associated template. It contains all of the templates
@@ -26,7 +32,7 @@ import (
 var (
 	Templates    map[string]*template.Template
 	templateLock sync.RWMutex
-	templateDir  = "templates"
+	templateFS   vfs.FileSystem
 
 	markdownExts = md.EXTENSION_NO_INTRA_EMPHASIS | md.EXTENSION_TABLES |
 		md.EXTENSION_FENCED_CODE | md.EXTENSION_STRIKETHROUGH |
@@ -60,11 +66,18 @@ var (
 
 func init() {
 	gas.Init(func() {
-		parseTemplates(templateDir)
+		var err error
+		if templateFS == nil {
+			templateFS, err = vfs.NewNativeFS(".")
+			if err != nil {
+				log.Fatalf("templates: %v", err)
+			}
+		}
+		parseTemplates(templateFS)
 	})
 	gas.Hook(syscall.SIGUSR1, func() {
-		parseTemplates(templateDir)
-		log.Printf("Templates reloaded.")
+		parseTemplates(templateFS)
+		log.Printf("templates: reloaded all templates")
 	})
 }
 
@@ -80,6 +93,14 @@ func init() {
 //     "datetime":  func(t time.Time) string
 func TemplateFunc(name string, f interface{}) {
 	globalFuncmap[name] = f
+}
+
+// TemplateFS assigns a virtual filesystem to look for HTML templates in. If no
+// filesystem is specified before server launch, the default value is a native
+// filesystem which looks for a directory called "templates" in the current
+// working directory.
+func TemplateFS(fs vfs.FileSystem) {
+	templateFS = fs
 }
 
 // return safe HTML of rendered markdown
@@ -104,50 +125,61 @@ func smarkdown(s interface{}) (template.HTML, error) {
 }
 
 // recursively parse templates in a directory
-func parseTemplates(base string) {
-	os.MkdirAll(base, 0755)
+func parseTemplates(fs vfs.FileSystem) {
+	// fs should be a filesystem with a dir in the top level called
+	// "templates". Inside this dir should be an arbitrary dir tree full of
+	// *.tmpl files. The path to each .tmpl file determines how it is referred
+	// to in application code, e.g. templates defined in ./templates/a/b/c.tmpl
+	// are referred to as "a/b/<name>".
+
+	//os.MkdirAll(base, 0755)
 	templateLock.Lock()
 	defer templateLock.Unlock()
 
 	Templates = make(map[string]*template.Template)
 
-	err := filepath.Walk(base, func(path string, fi os.FileInfo, err error) error {
+	e := fs.Walk("templates", func(path string, fi os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-		if !fi.IsDir() {
+		if fi.IsDir() || filepath.Ext(path) != ".tmpl" {
 			return nil
 		}
 
-		glob := filepath.Join(path, "*.tmpl")
-		files, err := filepath.Glob(glob)
+		log.Printf("templates: loading '%s'", path)
+
+		// remove the "templates/" from the front of the path
+		name, _ := filepath.Rel(templateDir, path)
+		// drop the .tmpl file from the name
+		name = filepath.Dir(name)
+		if name == "." {
+			name = ""
+		}
+		// name should now be path without templates e.g.
+		//     templates/a/b.tmpl => "a"
+		//     templates/c.tmpl   => ""
+		//name := strings.TrimLeft(filepath.Dir(relpath), string([]rune{filepath.Separator}))
+		t, ok := Templates[name]
+		if !ok {
+			t = template.New(path).Funcs(globalFuncmap)
+			Templates[name] = t
+		}
+
+		f, err := fs.Open(path)
 		if err != nil {
 			return err
 		}
-
-		log.Printf("%d template file(s) in %s", len(files), path)
-
-		if len(files) == 0 {
-			return nil
-		}
-
-		t, err := template.New(path).Funcs(globalFuncmap).ParseFiles(files...)
+		defer f.Close()
+		b, err := ioutil.ReadAll(f)
 		if err != nil {
 			return err
 		}
-
-		name := strings.TrimPrefix(path, base)
-		name = strings.TrimLeftFunc(name, func(c rune) bool { return c == filepath.Separator })
-		Templates[name] = t
-		return nil
+		_, err = t.Parse(string(b))
+		return err
 	})
 
-	if err != nil {
-		if os.IsNotExist(err) {
-			log.Fatalf("missing 'templates' directory")
-		} else {
-			log.Fatalf("templates: %v", err)
-		}
+	if e != nil {
+		log.Fatalf("templates: %v", e)
 	}
 }
 
@@ -211,7 +243,7 @@ func (o *templateOutputter) Output(code int, g *gas.Gas) {
 	var t *template.Template
 
 	if group == nil {
-		log.Printf("Failed to access template group \"%s\"", o.path)
+		log.Printf("templates: failed to access template group \"%s\"", o.path)
 		g.WriteHeader(500)
 		fmt.Fprintf(g, "Error: template group \"%s\" not found. Did it fail to compile?", o.path)
 		return
