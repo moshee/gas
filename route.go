@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/fcgi"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -219,36 +220,27 @@ func (r *Router) Delete(pattern string, handlers ...Handler) *Router {
 	return r.Add(pattern, "DELETE", handlers...)
 }
 
-// StaticHandler adds a handler on '/static' that serves static files from
-// the given path (relative to the working directory). If the given path is an
-// empty string and files have been registered in package bindata, that will be
-// used instead of the physical filesystem. Otherwise, no handlers are added to
-// the router.
-func (r *Router) StaticHandler(path string) *Router {
+// StaticHandler adds a handler on `endpoint` that serves static files from a
+// directory called "static" in `root` (relative to the working directory). If
+// `root` is an empty string and files have been registered in package bindata,
+// that will be used instead of the physical filesystem. Otherwise, no handlers
+// are added to the router.
+func (r *Router) StaticHandler(endpoint, root string) *Router {
 	var fs http.Handler
-	if path != "" {
-		path = filepath.Join(path, "static")
-		fs = http.FileServer(http.Dir(path))
-		fs = http.StripPrefix("/static", fs)
+	if root != "" {
+		root = filepath.Join(root, "static")
+		fs = http.FileServer(http.Dir(root))
+		fs = http.StripPrefix(endpoint, fs)
 	} else if bindata.Root != nil {
 		fs = http.FileServer(bindata.Root)
 	} else {
 		return r
 	}
-	return r.Get("/static/{file}", func(g *Gas) (int, Outputter) {
+	return r.Get(path.Join(endpoint, "{file}"), func(g *Gas) (int, Outputter) {
 		fs.ServeHTTP(g, g.Request)
 		return g.Stop()
 	})
 }
-
-/*
-func insertPrefix(h http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r.URL.Path = path.Join("static", r.URL.Path)
-		h.ServeHTTP(w, r)
-	})
-}
-*/
 
 // Continue instructs the request context to advance to the next handler in the
 // chain. It is an error to call Continue when no more handlers exist down the
