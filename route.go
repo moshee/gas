@@ -220,14 +220,17 @@ func (r *Router) Delete(pattern string, handlers ...Handler) *Router {
 	return r.Add(pattern, "DELETE", handlers...)
 }
 
-// StaticHandler adds a handler on `endpoint` that serves static files from a
-// directory called "static" in `root` (relative to the working directory). If
-// `root` is an empty string and files have been registered in package bindata,
-// that will be used instead of the physical filesystem. Otherwise, no handlers
-// are added to the router.
-func (r *Router) StaticHandler(endpoint, root string) *Router {
+// StaticHandler adds a handler that serves static files from a directory
+// called "static" in `root` (relative to the working directory). The route
+// path is determined by joining `prefix` with "static" (so e.g. register a
+// handler "/static" by passing in "/" as the prefix).
+//
+// If `root` is an empty string and files have been registered in package
+// bindata, that will be used instead of the physical filesystem. Otherwise, no
+// handlers are added to the router.
+func (r *Router) StaticHandler(prefix, root string) *Router {
 	var fs http.Handler
-	endpoint = path.Join(endpoint, "static")
+	endpoint := path.Join(prefix, "static")
 	if root != "" {
 		root = filepath.Join(root, "static")
 		fs = http.FileServer(http.Dir(root))
