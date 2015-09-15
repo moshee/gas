@@ -227,15 +227,24 @@ func (r *Router) Delete(pattern string, handlers ...Handler) *Router {
 // are added to the router.
 func (r *Router) StaticHandler(endpoint, root string) *Router {
 	var fs http.Handler
+	endpoint = path.Join(endpoint, "static")
 	if root != "" {
 		root = filepath.Join(root, "static")
 		fs = http.FileServer(http.Dir(root))
-		fs = http.StripPrefix(endpoint, fs)
 	} else if bindata.Root != nil {
-		fs = http.FileServer(bindata.Root)
+		f, err := bindata.Root.Open("static")
+		if err != nil {
+			log.Fatalln("route:", err)
+		}
+		if dir, ok := f.(http.FileSystem); ok {
+			fs = http.FileServer(dir)
+		} else {
+			log.Fatalf("route: 'static' dir in binfs is not a directory")
+		}
 	} else {
 		return r
 	}
+	fs = http.StripPrefix(endpoint, fs)
 	return r.Get(path.Join(endpoint, "{file}"), func(g *Gas) (int, Outputter) {
 		fs.ServeHTTP(g, g.Request)
 		return g.Stop()
