@@ -117,7 +117,9 @@ func (s *FileStore) Path(id []byte) string {
 }
 
 func (s *FileStore) Destroy() {
-	os.RemoveAll(s.Root)
+	if err := os.RemoveAll(s.Root); err != nil {
+		log.Print(err)
+	}
 }
 
 func (s *FileStore) Create(id []byte, expires time.Time, username string) error {
