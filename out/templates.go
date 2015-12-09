@@ -249,15 +249,16 @@ func (o *templateOutputter) Output(code int, g *gas.Gas) {
 		return
 	}
 
+	partial := g.Request.Header.Get("X-Ajax-Partial") != ""
+
 	// If it's a partial page request, try to serve a partial template
 	// (denoted by a '%' prepended to the template name). If it doesn't
 	// exist, fall back to the regular one.
-	if g.Request.Header.Get("X-Ajax-Partial") != "" {
+	if partial && !strings.HasPrefix(o.name, "%") {
 		t = group.Lookup("%" + o.name)
-		if t == nil {
-			t = group.Lookup(o.name)
-		}
-	} else {
+	}
+
+	if t == nil {
 		t = group.Lookup(o.name)
 	}
 
@@ -283,7 +284,7 @@ func (o *templateOutputter) Output(code int, g *gas.Gas) {
 		w = g
 	}
 
-	if o.layouts != nil && len(o.layouts) > 0 {
+	if !partial && o.layouts != nil && len(o.layouts) > 0 {
 		layouts := make([]*template.Template, len(o.layouts))
 
 		// conceptually the layouts are arranged like this
