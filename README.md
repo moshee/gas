@@ -1,31 +1,66 @@
-My personal homegrown web framework, take 2.
+Dumb web toolkit made for experimentation and learning that I end up using for all of my websites.
 
-#### Features
+No reason anyone should use this.
 
-- HTML templates
-- URL routing with named capture groups (no regex)
-- Rudimentary semi-ORM implementation (more on that in TODO)
-  - It does not generate SQL or anything, it's only to make scanning easier and less verbose.
-- User authentication (passwords stored in database using [scrypt][1])
-- Persistent sessions via cookies (session IDs also stored in database (or custom store possible) using `scrypt`)
-- Rudimentary signal handling
+#### Features and unfeatures
+
+##### `package gas`: router and utilities
+
+- Path matcher with named capture groups (no regex)*
+- Post form unmarshaling*
+- Defines handler and middleware structure
+- Environment variable configuration*
+- Signal capturing
+- User-Agent and Accept header helpers
+- TLS
+
+##### `package gas/auth`: session logic
+
+- Pluggable User interface for transparent login/logout
+- Session handling with pluggable store
+- Secure cookies
+- Password KDF (via scrypt[1]) and verification
+- All the crypto stuff is totally unverified™ and probably broken
 
 [1]: http://www.tarsnap.com/scrypt.html
 
-#### To do
+##### `package gas/db`: SQL database wrapper
 
-- Currently the ORM thingie only supports `SELECT` operations. Other stuff has to be done directly with `database/sql` (the package uses a single exported database instance). I'll either add the other CRUD operations or revamp the API entirely (because quite frankly it sucks).
-- ~~Easier table join types by indirecting through embedded struct types used as models transparently~~ *DONE!*
-- ~~There is a bunch of commented (tried but failed) code in `models.go` but I feel like I could salvage some of it.~~ *NO MORE!*
-- Tests, tests, tests!
-- More useful subcommands (currently only `makeuser` for creating users)
-- ~~User authorization in addition to authentication~~ *YEP!*
-- SSL
-- ~~Markdown~~ *GOT IT!*
-- More tests
-  - Benchmark routers
-  - Test event dispatching
-- Documentation (for myself more than anyone else)
-- Analytics (referer, reverse DNS, location, and the like)
-- Handler func panic recovery (500 error or something) *(In progress)*
-- Asset pipeline that makes dealing with/serving assets nicer, plus support for @2x images and such
+- Support postgres only (for now?)
+- Use raw SQL commands
+- Unmarshal row into struct, recursively handling embedded types
+
+##### `package gas/out`: output generators
+
+- HTML templates*
+	- Arbitrarily nested layouts
+	- Extra utility template funcs for Markdown, etc.
+	- Partial renders for pjax-like behavior
+	- gzip
+	- Error page redirection
+	- Established directory structure
+- JSON marshaling
+- Page redirection and rerouting via flash message cookies
+
+* = needs to be moved to a new package
+
+#### In the works
+
+- Remote process control and monitoring
+	- Start, stop
+	- Automatic start
+	- Send and receive messages/signals
+	- Resource usage monitoring
+	- Analytics
+
+```
+moshee@deimos(~/downloads) ⚡ gas status
+  NAME                PID    PORT   UPTIME
+× airlift (disabled)  -      -      -
+✓ index               21247  60607  7 days, 23:05:21.75
+✓ manga               21244  60608  7 days, 23:05:21.78
+✓ dl                  21271  60609  7 days, 23:05:21.69
+✓ pls                 21246  60610  7 days, 23:05:21.76
+× landing (disabled)  -      -      -
+moshee@deimos(~/downloads) ⚡
+```
