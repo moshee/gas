@@ -42,7 +42,7 @@ No reason anyone should use this.
 - JSON marshaling
 - Page redirection and rerouting via flash message cookies
 
-* = needs to be moved to a new package
+\* = needs to be moved to a new package
 
 #### In the works
 
