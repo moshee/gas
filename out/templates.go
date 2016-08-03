@@ -75,7 +75,7 @@ func init() {
 		}
 		parseTemplates(templateFS)
 	})
-	gas.Hook(syscall.SIGUSR1, func() {
+	gas.Hook(syscall.SIGHUP, func() {
 		parseTemplates(templateFS)
 		log.Printf("templates: reloaded all templates")
 	})
