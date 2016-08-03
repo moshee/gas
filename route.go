@@ -152,11 +152,14 @@ type Router struct {
 	// Server is the HTTP server that the package will attach to and use. If
 	// it's nil, an empty *http.Server instance will be used.
 	Server *http.Server
+
+	// quit can be used to close the server
+	quit chan struct{}
 }
 
 // New creates a new router onto which routes may be added.
 func New() *Router {
-	return &Router{routes: make([]*route, 0)}
+	return &Router{routes: make([]*route, 0), quit: make(chan struct{})}
 }
 
 // Use instructs this router to use the given middleware stack. The router's
@@ -254,6 +257,12 @@ func (r *Router) StaticHandler(prefix, root string) *Router {
 	})
 }
 
+// Quit closes all of the listeners in r and causes Ignition to return. It can
+// be used to close the server from another goroutine.
+func (r *Router) Quit() {
+	close(r.quit)
+}
+
 // Continue instructs the request context to advance to the next handler in the
 // chain. It is an error to call Continue when no more handlers exist down the
 // chain.
@@ -326,8 +335,12 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 }
 
 // Ignition starts the server. Should be called after everything else is set up.
-func (r *Router) Ignition() {
-	now := time.Now()
+func (r *Router) Ignition() error {
+	var (
+		now = time.Now()
+		c   = make(chan error)
+	)
+
 	if initFuncs != nil {
 		for _, f := range initFuncs {
 			f()
@@ -361,7 +374,13 @@ func (r *Router) Ignition() {
 		}
 
 		log.Printf("FastCGI listening on %s", s)
-		log.Fatalf("FastCGI: %v", fcgi.Serve(l, r))
+		go func() {
+			select {
+			case c <- fcgi.Serve(l, r):
+			case <-r.quit:
+				l.Close()
+			}
+		}()
 	} else {
 		if Env.Port < 0 && Env.TLSPort < 0 {
 			log.Fatalf("must have at least one of either GAS_PORT or GAS_TLS_PORT set")
@@ -375,23 +394,21 @@ func (r *Router) Ignition() {
 
 		r.Server.Handler = r
 
-		c := make(chan error)
-
 		if Env.TLSPort > 0 {
-			go func() {
-				c <- listenTLS(r.Server)
-			}()
+			go listenTLS(r.Server, c, r.quit)
 		}
 
 		if Env.Port > 0 {
-			go func() {
-				c <- listen(r.Server)
-			}()
+			go listen(r.Server, c, r.quit)
 		}
-
-		log.Fatal(<-c)
 	}
-	exit(0)
+
+	select {
+	case err := <-c:
+		return err
+	case <-r.quit:
+		return nil
+	}
 }
 
 func fmtDuration(d time.Duration) string {
