@@ -1,6 +1,10 @@
 package main
 
-import "os"
+import (
+	"os"
+
+	"golang.org/x/sys/unix"
+)
 
 var signalMap = map[string]os.Signal{
 	"ABRT":   unix.SIGABRT,
