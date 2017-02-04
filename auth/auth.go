@@ -129,7 +129,7 @@ func (s *FileStore) Create(id []byte, expires time.Time, username string) error 
 	if err != nil {
 		return err
 	}
-	f, err := os.OpenFile(s.Path(id), os.O_CREATE|os.O_EXCL|os.O_WRONLY, os.FileMode(0600))
+	f, err := os.OpenFile(s.Path(id), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
 		return err
 	}

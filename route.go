@@ -321,8 +321,8 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if remote == "" {
 		remote, _, _ = net.SplitHostPort(g.RemoteAddr)
 	}
-	log.Printf("[%s] %15s %7s (%d) %s%s", fmtDuration(time.Now().Sub(now)),
-		remote, g.Method, g.responseCode, host, g.URL.Path)
+	log.Printf("[%s] %15s %8s %7s (%d) %s%s", fmtDuration(time.Since(now)),
+		remote, g.Proto, g.Method, g.responseCode, host, g.URL.Path)
 }
 
 // Ignition starts the server. Should be called after everything else is set up.
