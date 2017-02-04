@@ -19,7 +19,7 @@ No reason anyone should use this.
 - Pluggable User interface for transparent login/logout
 - Session handling with pluggable store
 - Secure cookies
-- Password KDF (via scrypt[1]) and verification
+- Password KDF (via [scrypt][1]) and verification
 - All the crypto stuff is totally unverified™ and probably broken
 
 [1]: http://www.tarsnap.com/scrypt.html
@@ -42,7 +42,7 @@ No reason anyone should use this.
 - JSON marshaling
 - Page redirection and rerouting via flash message cookies
 
-* = needs to be moved to a new package
+\* = needs to be moved to a new package
 
 #### In the works
 

@@ -273,14 +273,14 @@ func handleSignals(c chan os.Signal) {
 	}
 }
 
-func listenTLS(srv *http.Server) error {
+func listenTLS(srv *http.Server, c chan error, quit chan struct{}) {
 	cfg := &tls.Config{}
 	if srv.TLSConfig != nil {
 		*cfg = *srv.TLSConfig
 	} else {
 		cert, err := tls.LoadX509KeyPair(Env.TLSCert, Env.TLSKey)
 		if err != nil {
-			return err
+			c <- err
 		}
 		cfg.Certificates = []tls.Certificate{cert}
 		cfg.ServerName = Env.TLSHost
@@ -293,21 +293,31 @@ func listenTLS(srv *http.Server) error {
 
 	l, err := net.Listen("tcp", ":"+strconv.Itoa(Env.TLSPort))
 	if err != nil {
-		return err
+		c <- err
 	}
 
 	t := tls.NewListener(l, cfg)
 	log.Printf("Server listening on port %d (TLS)", Env.TLSPort)
-	return srv.Serve(t)
+
+	select {
+	case c <- srv.Serve(t):
+	case <-quit:
+		l.Close()
+	}
 }
 
-func listen(srv *http.Server) error {
+func listen(srv *http.Server, c chan error, quit chan struct{}) {
 	l, err := net.Listen("tcp", ":"+strconv.Itoa(Env.Port))
 	if err != nil {
-		return err
+		c <- err
 	}
 	log.Printf("Server listening on port %d", Env.Port)
-	return srv.Serve(l)
+
+	select {
+	case c <- srv.Serve(l):
+	case <-quit:
+		l.Close()
+	}
 }
 
 var initFuncs []func()
