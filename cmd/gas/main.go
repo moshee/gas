@@ -68,25 +68,28 @@ func main() {
 		log.Fatal(err)
 	}
 
-	err = os.MkdirAll(logDirBase, 0755)
-	if err != nil {
-		log.Fatal(err)
+	dirs := []struct {
+		path  string
+		mode  os.FileMode
+		chown bool
+	}{
+		{logDirBase, 0755, false},
+		{c.logDirPath, 0700, true},
+		{sockDirBase, 0755, false},
+		{c.sockDirPath, 0700, true},
 	}
-	err = os.MkdirAll(c.logDirPath, 0700)
-	if err != nil {
-		log.Fatal(err)
-	}
-	err = os.Chown(c.logDirPath, uid, gid)
-	if err != nil {
-		log.Fatal(err)
-	}
-	err = os.MkdirAll(c.sockDirPath, 0700)
-	if err != nil {
-		log.Fatal(err)
-	}
-	err = os.Chown(c.sockDirPath, uid, gid)
-	if err != nil {
-		log.Fatal(err)
+
+	for _, dir := range dirs {
+		err = os.MkdirAll(dir.path, dir.mode)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if dir.chown {
+			err = os.Chown(dir.path, uid, gid)
+			if err != nil {
+				log.Fatal(err)
+			}
+		}
 	}
 
 	log.Println("setup done - please launch with -s flag")
