@@ -23,6 +23,7 @@ type Task struct {
 	Env    map[string]string
 	Args   []string
 	Enable bool
+	Dir    string
 
 	cmd     *exec.Cmd
 	lr      *rotator.Rotator // for logs from task itself
@@ -58,6 +59,7 @@ func (t *Task) Run(ch chan<- *TaskStatus) {
 	t.cmd.Stdout = w
 	t.cmd.Stderr = w
 	t.cmd.Env = env
+	t.cmd.Dir = t.Dir
 
 	logpath := t.LogPath()
 	var err error
