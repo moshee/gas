@@ -204,12 +204,16 @@ func runServer(flagFile string, sockpath string) {
 				for _, task := range v {
 					if task.Enable {
 						go task.Run(statusChan)
+					} else {
+						task.Signal(signalMap["TERM"])
 					}
 				}
 
 			case *Task:
 				if v.Enable {
 					go v.Run(statusChan)
+				} else {
+					v.Signal(signalMap["TERM"])
 				}
 			}
 		}

@@ -60,6 +60,7 @@ func (c *config) loadTasks() (tasks TaskList, err error) {
 		t.c = c
 	}
 	tasks.taskChan = make(chan interface{}, 1)
+	tasks.c = c
 	return
 }
 

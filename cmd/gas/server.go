@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"os/user"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,40 +28,19 @@ type Response struct {
 	Tasks  []TaskStatus
 }
 
-type TaskStatus struct {
-	Name    string
-	Alive   bool
-	PID     int
-	Uptime  time.Duration
-	Message string
-	Enable  bool
-	Port    string
-}
-
-func (ts TaskStatus) String() string {
-	var (
-		alive  = "×"
-		pid    = "-"
-		uptime = "-"
-		port   = "-"
-		name   = ts.Name
-	)
-	if ts.Alive {
-		alive = "✓"
-		pid = strconv.Itoa(ts.PID)
-		uptime = fmtDuration(ts.Uptime)
-		port = ts.Port
+func (r *Response) addStatus(t TaskStatus) {
+	if r.Tasks == nil {
+		r.Tasks = []TaskStatus{t}
+	} else {
+		r.Tasks = append(r.Tasks, t)
 	}
-	if !ts.Enable {
-		name += " (disabled)"
-	}
-	return fmt.Sprintf("%s %s\t%s\t%s\t%s\t%s", alive, name, pid, port, uptime, ts.Message)
 }
 
 type TaskList struct {
 	Tasks    []*Task
 	mu       *sync.RWMutex
 	taskChan chan interface{}
+	c        *config
 }
 
 func (tl *TaskList) save(name string, ch chan<- *TaskStatus) {
@@ -91,12 +69,8 @@ type ReloadResult struct {
 // * change parameters? (env, argv)
 func (tl *TaskList) reload() (*ReloadResult, error) {
 	log.Print("reload tasks")
-	c, err := userConfig(user.Current())
-	if err != nil {
-		return nil, err
-	}
 
-	tl2, err := c.loadTasks()
+	tl2, err := tl.c.loadTasks()
 	if err != nil {
 		return nil, err
 	}
@@ -216,24 +190,28 @@ func (tl *TaskList) lookup(name string) (*Task, error) {
 	return nil, ErrNoTask
 }
 
-// RPC calls:
-// status [name]
-//   => table of names, on/off, PID, uptime
-// start <name>
-// stop <name>
-// restart <name>
-// signal <name> <signal>
-// names
-//   => list of names
-// tail <name>
-//   => output of tail(1)
-//
-// maybe:
-//
-// a way to keep arbitrary values on the server, allow processes to publish
-// and advertise key-value pairs
-// set <name> <key> <value>
-// get <name> [key]
+// RPC methods follow
+
+func (tl *TaskList) Help(args *Args, resp *Response) error {
+	resp.Status = fmt.Sprintf(`Usage: %s <command> [args...]
+Commands:
+  status          query status of all running tasks
+  startall        start all tasks
+  killall         kill all tasks
+  names           get all task names, space separated
+  reload          reload task list and update currently running tasks
+  start <task>    start a task
+  stop <task>     stop a task with SIGINT
+  kill <task>     stop a task with SIGKILL
+  restart <task>  restart a task
+  signal <task> <signal>
+                  send a signal to a task using kill(1) names
+  tail <task>     tail the logs of a task
+  logpath <task>  get the path to the current log file of a task
+  help            print this message`, os.Args[0])
+
+	return nil
+}
 
 func (tl *TaskList) Status(args *Args, resp *Response) error {
 	if args.Name != "" {
@@ -247,7 +225,7 @@ func (tl *TaskList) Status(args *Args, resp *Response) error {
 		if task == nil {
 			return fmt.Errorf("no such task: %s", args.Name)
 		}
-		resp.Tasks = []TaskStatus{task.Status()}
+		resp.addStatus(task.Status())
 	} else {
 		resp.Tasks = make([]TaskStatus, len(tl.Tasks))
 		for i, task := range tl.Tasks {
@@ -273,17 +251,11 @@ func (tl *TaskList) Start(args *Args, resp *Response) error {
 	// events and we should have full control in the current goroutine for
 	// mutation
 	t.ch = make(chan *TaskStatus)
-
-	// go func() {
 	tl.taskChan <- t
-	// }()
+	resp.addStatus(*<-t.ch)
 
-	select {
-	case <-time.After(time.Second):
-	case stat := <-t.ch:
-		resp.Tasks = []TaskStatus{*stat}
-	}
 	t.ch = nil
+
 	return nil
 }
 
@@ -295,6 +267,7 @@ func (tl *TaskList) StartAll(args *Args, resp *Response) error {
 		}
 	}
 	tl.taskChan <- l
+
 	return nil
 }
 
@@ -307,8 +280,23 @@ func (tl *TaskList) Stop(args *Args, resp *Response) error {
 	if !t.Alive() {
 		return fmt.Errorf("%s: task has not been started", t.Name)
 	}
+
 	t.Enable = false
-	return t.Signal(os.Interrupt)
+	t.ch = make(chan *TaskStatus, 1)
+
+	err = t.Signal(signalMap["TERM"])
+	if err != nil {
+		return err
+	}
+	t.outputReader.Close()
+
+	// TODO: if the task fails to die with SIGTERM, we will block here forever
+	// waiting for it to end so the task thread can return its status. Seems to
+	// be something to do with I/O buffers not getting flushed. Need to find a
+	// way around this.
+	resp.addStatus(*<-t.ch)
+	t.ch = nil
+	return nil
 }
 
 // Like Stop but with SIGKILL for badly misbehaving tasks
@@ -320,8 +308,18 @@ func (tl *TaskList) Kill(args *Args, resp *Response) error {
 	if !t.Alive() {
 		return fmt.Errorf("%s: task has not been started", t.Name)
 	}
+
 	t.Enable = false
-	return t.Kill()
+	t.ch = make(chan *TaskStatus, 1)
+
+	err = t.Kill()
+	if err != nil {
+		return err
+	}
+
+	resp.addStatus(*<-t.ch)
+	t.ch = nil
+	return nil
 }
 
 // Perform Kill on all tasks
@@ -342,13 +340,14 @@ func (tl *TaskList) Restart(args *Args, resp *Response) error {
 	if err != nil {
 		return err
 	}
+
 	if err := tl.Stop(args, resp); err != nil {
 		return err
 	}
-	for i := 0; ; i++ {
-		if !t.Alive() {
-			break
-		}
+
+	t.ch = make(chan *TaskStatus, 1)
+
+	for i := 0; t.Alive(); i++ {
 		if i > 500 {
 			return errors.New("could not stop task")
 		}
@@ -467,27 +466,6 @@ func (tl *TaskList) Set(args *Args, resp *Response) error {
 		resp.Status = "usage: set <name> <key> <value>"
 		return nil
 	}
-	return nil
-}
-
-func (tl *TaskList) Help(args *Args, resp *Response) error {
-	resp.Status = fmt.Sprintf(`Usage: %s <command> [args...]
-Commands:
-  status          query status of all running tasks
-  startall        start all tasks
-  killall         kill all tasks
-  names           get all task names, space separated
-  reload          reload task list and update currently running tasks
-  start <task>    start a task
-  stop <task>     stop a task with SIGINT
-  kill <task>     stop a task with SIGKILL
-  restart <task>  restart a task
-  signal <task> <signal>
-                  send a signal to a task using kill(1) names
-  tail <task>     tail the logs of a task
-  logpath <task>  get the path to the current log file of a task
-  help            print this message`, os.Args[0])
-
 	return nil
 }
 

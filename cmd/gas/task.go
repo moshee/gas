@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"io/ioutil"
 	"log"
 	"os"
@@ -17,6 +16,36 @@ import (
 	"ktkr.us/pkg/logrotate/rotator"
 )
 
+type TaskStatus struct {
+	Name    string
+	Alive   bool
+	PID     int
+	Uptime  time.Duration
+	Message string
+	Enable  bool
+	Port    string
+}
+
+func (ts TaskStatus) String() string {
+	var (
+		alive  = "×"
+		pid    = "-"
+		uptime = "-"
+		port   = "-"
+		name   = ts.Name
+	)
+	if ts.Alive {
+		alive = "✓"
+		pid = strconv.Itoa(ts.PID)
+		uptime = fmtDuration(ts.Uptime)
+		port = ts.Port
+	}
+	if !ts.Enable {
+		name += " (disabled)"
+	}
+	return fmt.Sprintf("%s %s\t%s\t%s\t%s\t%s", alive, name, pid, port, uptime, ts.Message)
+}
+
 type Task struct {
 	Name   string
 	Invoke string
@@ -25,12 +54,13 @@ type Task struct {
 	Enable bool
 	Dir    string
 
-	cmd     *exec.Cmd
-	lr      *rotator.Rotator // for logs from task itself
-	started time.Time        // time at which task was started
-	ch      chan *TaskStatus // channel on which to send task status
-	c       *config
-	prefix  string
+	cmd          *exec.Cmd
+	lr           *rotator.Rotator // for logs from task itself
+	started      time.Time        // time at which task was started
+	ch           chan *TaskStatus // channel on which to send task status
+	c            *config
+	prefix       string
+	outputReader *os.File
 }
 
 func (t *Task) Log(x ...interface{}) {
@@ -50,33 +80,46 @@ func (t *Task) Run(ch chan<- *TaskStatus) {
 
 	t.Logf("starting %v %s %v", env, t.Invoke, t.Args)
 
+	stat := t.Status()
+
 	for _, val := range os.Environ() {
 		env = append(env, val)
 	}
 
 	t.cmd = exec.Command(t.Invoke, t.Args...)
-	r, w := io.Pipe()
-	t.cmd.Stdout = w
+
+	// see golang/go issue #10338
+	r, w, err := os.Pipe()
+	if err != nil {
+		stat.Message = err.Error()
+		ch <- &stat
+		return
+	}
+
 	t.cmd.Stderr = w
+	t.cmd.Stdout = w
+	t.outputReader = r
+
 	t.cmd.Env = env
 	t.cmd.Dir = t.Dir
 
 	logpath := t.LogPath()
-	var err error
-	t.lr, err = rotator.New(r, logpath, 5*1024, false)
+	t.lr, err = rotator.New(t.outputReader, logpath, 5*1024, false)
 	if err != nil {
-		ch <- &TaskStatus{Name: t.Name, Message: err.Error()}
+		stat.Message = err.Error()
+		ch <- &stat
 		return
 	}
 
-	errChan := make(chan error, 1)
+	logError := make(chan error, 1)
+	taskError := make(chan error, 1)
 	go func() {
-		errChan <- errors.Wrap(t.lr.Run(), "logrotate")
+		logError <- errors.Wrap(t.lr.Run(), "logrotate")
 	}()
 
 	go func() {
 		if err = t.CheckRunningTask(); err != nil {
-			errChan <- err
+			taskError <- err
 			return
 		}
 
@@ -86,7 +129,7 @@ func (t *Task) Run(ch chan<- *TaskStatus) {
 		stat := t.Status()
 		if err != nil {
 			t.cmd.Process.Release()
-			errChan <- errors.Wrap(err, "start task")
+			taskError <- errors.Wrap(err, "start task")
 			stat.Message = err.Error()
 			if t.ch != nil {
 				t.ch <- &stat
@@ -103,23 +146,40 @@ func (t *Task) Run(ch chan<- *TaskStatus) {
 			}
 		}
 
-		errChan <- t.cmd.Wait()
+		err = t.cmd.Wait()
+		taskError <- err
 	}()
 
 	// block in this goroutine until task is done or something dies
-	err = <-errChan
+	select {
+	case err = <-logError:
+		// XXX: how certain can we be that the process should be shutting down
+		// when it closes stdout/stderr?
+		err2 := <-taskError
+		if err == nil {
+			err = err2
+		}
+	case err = <-taskError:
+	}
 
-	stat := t.Status()
 	if err != nil {
+		if t.Alive() {
+			t.Kill()
+		}
 		t.Logf("task died: %v", err)
+		stat = t.Status()
 		stat.Message = err.Error()
 	} else {
+		stat = t.Status()
 		t.Log("task finished")
 	}
 
 	os.Remove(t.PidFile())
 
 	// report back to main thread
+	if t.ch != nil {
+		t.ch <- &stat
+	}
 	ch <- &stat
 }
 
@@ -199,7 +259,7 @@ func (t *Task) Status() TaskStatus {
 }
 
 func (t *Task) Alive() bool {
-	return t.cmd != nil && t.cmd.ProcessState == nil && t.cmd.Process != nil
+	return t.cmd != nil && t.cmd.ProcessState == nil
 }
 
 func (t *Task) Pid() int {
@@ -210,19 +270,29 @@ func (t *Task) Pid() int {
 }
 
 func (t *Task) Kill() error {
-	t.Log("processes die when they are killed")
-	if t.cmd.Process == nil {
+	if t.cmd == nil || t.cmd.Process == nil {
 		return nil
 	}
-	return t.cmd.Process.Kill()
+	t.Log("processes die when they are killed")
+	err := errors.Wrap(t.cmd.Process.Kill(), "Task.Kill")
+	if err != nil {
+		t.Log(err)
+	}
+	t.outputReader.Close()
+	return err
 }
 
 func (t *Task) Signal(sig os.Signal) error {
-	t.Logf("got signal: %v", sig)
-	if t.cmd.Process == nil {
+	if t.cmd == nil || t.cmd.Process == nil {
 		return nil
 	}
-	return t.cmd.Process.Signal(sig)
+	t.Logf("got signal: %v", sig)
+	err := errors.Wrap(t.cmd.Process.Signal(sig), "Task.Signal")
+	if err != nil {
+		t.Log(err)
+	}
+	t.outputReader.Sync()
+	return err
 }
 
 func (t *Task) Uptime() time.Duration {
