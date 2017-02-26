@@ -58,9 +58,6 @@ var (
 		"datetime": func(t time.Time) string {
 			return t.Format("2006-01-02T15:04:05Z")
 		},
-		"content": func() (string, error) {
-			return "", errors.New("content template func used from non-layout context")
-		},
 	}
 )
 
@@ -236,6 +233,17 @@ func HTML(path string, data interface{}, layoutPaths ...string) gas.Outputter {
 	return &templateOutputter{parseTemplatePath(path), layouts, data}
 }
 
+type Context struct {
+	G    *gas.Gas
+	Data interface{}
+
+	content func() (string, error)
+}
+
+func (c *Context) Content() (string, error) {
+	return c.content()
+}
+
 func (o *templateOutputter) Output(code int, g *gas.Gas) {
 	templateLock.RLock()
 	defer templateLock.RUnlock()
@@ -301,16 +309,17 @@ func (o *templateOutputter) Output(code int, g *gas.Gas) {
 		// Otherwise the value of n would be the final value always. The layout
 		// execution would then always skip all layouts after the first.
 		funcs := make([]func(), len(o.layouts))
+		contexts := make([]*Context, len(o.layouts))
 
 		for n, path := range o.layouts {
 			if err := (func(i int) error {
 				group, ok := Templates[path.path]
 				if !ok {
-					return fmt.Errorf("no such template path %s for layout %s", path.path, path.name)
+					return fmt.Errorf("no such template path %q for layout %q", path.path, path.name)
 				}
 				layout := group.Lookup(path.name)
 				if layout == nil {
-					return fmt.Errorf("no such layout %s in path %s", path.name, path.path)
+					return fmt.Errorf("no such layout %q in path %q", path.name, path.path)
 				}
 
 				layouts[i] = layout
@@ -321,18 +330,22 @@ func (o *templateOutputter) Output(code int, g *gas.Gas) {
 				// - i so that it knows its position,
 				// - t to render the final content.
 
+				contexts[i] = &Context{
+					G:    g,
+					Data: o.data,
+				}
+
 				funcs[i] = func() {
-					f := func() (string, error) {
+					contexts[i].content = func() (string, error) {
 						// If this is the last layout in the queue, then do the
 						// data instead. Then it'll stop "recursing" to this
 						// closure.
 						if i < len(funcs)-1 {
 							funcs[i+1]()
-							return "", layouts[i+1].Execute(w, o.data)
+							return "", layouts[i+1].Execute(w, contexts[i+1])
 						}
-						return "", t.Execute(w, o.data)
+						return "", t.Execute(w, contexts[i])
 					}
-					layout.Funcs(template.FuncMap{"content": f})
 				}
 
 				return nil
@@ -340,12 +353,13 @@ func (o *templateOutputter) Output(code int, g *gas.Gas) {
 				log.Printf("Render: Layouts: %v", err)
 				g.WriteHeader(500)
 				fmt.Fprint(w, err)
+				return
 			}
 		}
 
 		g.WriteHeader(code)
 		funcs[0]()
-		if err := layouts[0].Execute(w, o.data); err != nil {
+		if err := layouts[0].Execute(w, contexts[0]); err != nil {
 			fmt.Fprint(w, err)
 		}
 		return
@@ -353,7 +367,12 @@ func (o *templateOutputter) Output(code int, g *gas.Gas) {
 
 	g.WriteHeader(code)
 
-	if err := t.Execute(w, o.data); err != nil {
+	ctx := &Context{
+		G:    g,
+		Data: o.data,
+	}
+
+	if err := t.Execute(w, ctx); err != nil {
 		t = Templates[o.path].Lookup(o.name + "-error")
 		if t == nil {
 			fmt.Fprintf(g, "Error: failed to serve error page for %s/%s (error template not found)", o.path, o.name)

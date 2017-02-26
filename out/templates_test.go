@@ -7,38 +7,46 @@ import (
 
 	"ktkr.us/pkg/gas"
 	"ktkr.us/pkg/gas/testutil"
+	"ktkr.us/pkg/vfs"
 )
 
 func TestOutputter(t *testing.T) {
-	parseTemplates(templateDir)
-	r := gas.New().Get("/htmltest", func(g *gas.Gas) (int, gas.Outputter) {
-		return 200, HTML("a/index", "world")
-	}).
+	fs, err := vfs.NewNativeFS(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	parseTemplates(fs)
+
+	r := gas.New().
+		Get("/htmltest", func(g *gas.Gas) (int, gas.Outputter) {
+			return 200, HTML("a/index", "world")
+		}).
 		Get("/jsontest", func(g *gas.Gas) (int, gas.Outputter) {
-		return 200, JSON(&struct {
-			A int
-			B string
-			C bool
-		}{-203881, "asdf", true})
-	}).
+			return 200, JSON(&struct {
+				A int
+				B string
+				C bool
+			}{-203881, "asdf", true})
+		}).
 		Get("/htmltest2", func(g *gas.Gas) (int, gas.Outputter) {
-		return 200, HTML("m/a/g/i/c", "# hi\n")
-	}).
+			return 200, HTML("m/a/g/i/c", "# hi\n")
+		}).
 		Get("/htmltest3", func(g *gas.Gas) (int, gas.Outputter) {
-		return 200, HTML("something", 123)
-	}).
+			return 200, HTML("something", 123)
+		}).
 		Get("/htmltest4", func(g *gas.Gas) (int, gas.Outputter) {
-		return 200, HTML("something", "abc", "layouts/parens", "layouts/brackets", "layouts/quotes")
-	}).
+			return 200, HTML("something", "abc", "layouts/parens", "layouts/brackets", "layouts/quotes")
+		}).
 		Get("/htmltest5", func(g *gas.Gas) (int, gas.Outputter) {
-		return 200, HTML("something", "xyz", "layouts/parens")
-	}).
+			return 200, HTML("something", "xyz", "layouts/parens")
+		}).
 		Get("/htmltest6", func(g *gas.Gas) (int, gas.Outputter) {
-		return 200, HTML("donottrythisathome", 3, "layouts/wat")
-	}).
+			return 200, HTML("donottrythisathome", 3, "layouts/wat")
+		}).
 		Get("/htmltest7", func(g *gas.Gas) (int, gas.Outputter) {
-		return 200, HTML("something", "asdfasdf", "layouts/nonexistent")
-	})
+			return 200, HTML("something", "asdfasdf", "layouts/nonexistent")
+		})
 
 	srv := httptest.NewServer(r)
 	defer srv.Close()
@@ -50,7 +58,7 @@ func TestOutputter(t *testing.T) {
 	testutil.TestGet(t, srv, "/htmltest4", `(["abcabcabc"])`)
 	testutil.TestGet(t, srv, "/htmltest5", "(xyzxyzxyz)")
 	testutil.TestGet(t, srv, "/htmltest6", "3(3)3")
-	testutil.TestGet(t, srv, "/htmltest7", "no such layout nonexistent in path layouts")
+	testutil.TestGet(t, srv, "/htmltest7", `no such layout "nonexistent" in path "layouts"`)
 }
 
 func TestReroute(t *testing.T) {
