@@ -506,10 +506,13 @@ func notifyPanic(g *Gas, err error) {
 	// that way we can get right to the source of it with less noise
 	source, lineNum, file, stack := fmtStack(5, 10, true)
 
-	g.Header().Set("Content-Type", "text/html; encoding=utf-8")
-	g.WriteHeader(500)
+	// don't write header if panic happened in outputter
+	if g.w.Header().Get("Content-Type") == "" {
+		g.w.Header().Set("Content-Type", "text/html; encoding=utf-8")
+		g.w.WriteHeader(500)
+	}
 
-	tmplErr := panicTemplate.Execute(g, &struct {
+	tmplErr := panicTemplate.Execute(g.w, &struct {
 		Err    error
 		Stack  string
 		File   string
