@@ -273,22 +273,38 @@ func handleSignals(c chan os.Signal) {
 	}
 }
 
-func listenTLS(srv *http.Server, c chan error, quit chan struct{}) {
+func tlsConfig(certPath, keyPath, hostName string) (*tls.Config, error) {
 	cfg := &tls.Config{}
-	if srv.TLSConfig != nil {
-		*cfg = *srv.TLSConfig
-	} else {
-		cert, err := tls.LoadX509KeyPair(Env.TLSCert, Env.TLSKey)
+
+	cert, err := tls.LoadX509KeyPair(certPath, keyPath)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Certificates = []tls.Certificate{cert}
+	cfg.ServerName = hostName
+	cfg.BuildNameToCertificate()
+
+	if cfg.NextProtos == nil {
+		cfg.NextProtos = []string{"h2", "http/1.1"}
+	}
+
+	return cfg, nil
+}
+
+func listenTLS(srv *http.Server, c chan error, quit chan struct{}) {
+	var (
+		cfg *tls.Config
+		err error
+	)
+
+	if srv.TLSConfig == nil {
+		cfg, err = tlsConfig(Env.TLSCert, Env.TLSKey, Env.TLSHost)
 		if err != nil {
 			c <- err
 		}
-		cfg.Certificates = []tls.Certificate{cert}
-		cfg.ServerName = Env.TLSHost
-		cfg.BuildNameToCertificate()
-	}
-
-	if cfg.NextProtos == nil {
-		cfg.NextProtos = []string{"http/1.1"}
+		srv.TLSConfig = cfg
+	} else {
+		cfg = srv.TLSConfig
 	}
 
 	l, err := net.Listen("tcp", ":"+strconv.Itoa(Env.TLSPort))

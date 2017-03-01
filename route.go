@@ -2,6 +2,8 @@ package gas
 
 import (
 	"bytes"
+	"context"
+	"crypto/tls"
 	"fmt"
 	"html/template"
 	"io"
@@ -12,6 +14,7 @@ import (
 	"net/http"
 	"net/http/fcgi"
 	"os"
+	"os/signal"
 	"path"
 	"path/filepath"
 	"runtime"
@@ -19,6 +22,8 @@ import (
 	"strings"
 	"text/tabwriter"
 	"time"
+
+	"github.com/pkg/errors"
 
 	"ktkr.us/pkg/vfs/bindata"
 )
@@ -334,6 +339,8 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		remote, g.Proto, g.Method, g.responseCode, host, g.URL.Path)
 }
 
+// TODO: write tests for listen code, including for TLS and all network types
+
 // Ignition starts the server. Should be called after everything else is set up.
 func (r *Router) Ignition() error {
 	var (
@@ -351,6 +358,12 @@ func (r *Router) Ignition() error {
 
 	log.Printf("Initialization took %v", time.Now().Sub(now))
 	log.Printf("=== Session: %s =========================", now.Format("2006-01-02 15:04"))
+
+	if Env.Listen != "" {
+		return r.listen(Env.Listen)
+	}
+
+	log.Print("GAS_PORT, GAS_TLS_PORT, and GAS_FAST_CGI are deprecated, please use GAS_LISTEN")
 
 	if Env.FastCGI != "" {
 		var (
@@ -409,6 +422,100 @@ func (r *Router) Ignition() error {
 	case <-r.quit:
 		return nil
 	}
+}
+
+func (r *Router) listen(listenenv string) error {
+	var (
+		addrs   = strings.Split(listenenv, ",")
+		ll      = make([]net.Listener, len(addrs))
+		cfg     *tls.Config
+		srv     *http.Server
+		errchan chan error
+	)
+
+	if r.Server != nil {
+		srv = r.Server
+	} else {
+		srv = &http.Server{}
+	}
+
+	srv.Handler = r
+
+	for i, addr := range addrs {
+		var (
+			optTLS  bool
+			network string
+			laddr   string
+		)
+
+		addropt := strings.SplitN(addr, ";", 2)
+		if len(addropt) == 2 {
+			switch addropt[1] {
+			case "tls":
+				optTLS = true
+			default:
+				return errors.Errorf("GAS_LISTEN: invalid option: %q", addropt[1])
+			}
+		}
+
+		netaddr := strings.SplitN(strings.TrimSpace(addr), "!", 2)
+		switch len(netaddr) {
+		case 1:
+			network = "tcp"
+			laddr = netaddr[0]
+		case 2:
+			network, laddr = netaddr[0], netaddr[1]
+		default:
+			return errors.Errorf("GAS_LISTEN: invalid listen syntax: %q", listenenv)
+		}
+
+		l, err := net.Listen(network, laddr)
+		if err != nil {
+			return err
+		}
+
+		if optTLS {
+			if cfg == nil {
+				cfg, err = tlsConfig(Env.TLSCert, Env.TLSKey, Env.TLSHost)
+				if err != nil {
+					return err
+				}
+			}
+			l = tls.NewListener(l, cfg)
+		}
+
+		ll[i] = l
+	}
+
+	for _, l := range ll {
+		go func(l net.Listener) {
+			log.Printf("serving on %v", l.Addr())
+			err := srv.Serve(l)
+			log.Printf("%v: %v", l.Addr(), err)
+			select {
+			case errchan <- err:
+			default:
+			}
+		}(l)
+	}
+
+	var (
+		err error
+		sig = make(chan os.Signal)
+		ctx = context.Background()
+	)
+
+	signal.Notify(sig, os.Interrupt)
+
+	select {
+	case err = <-errchan:
+	case <-sig:
+		// TODO: attempt graceful shutdown upon first ^C, force on second
+	case <-r.quit:
+	}
+
+	srv.Shutdown(ctx)
+	return err
 }
 
 func fmtDuration(d time.Duration) string {

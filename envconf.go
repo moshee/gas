@@ -26,6 +26,22 @@ var Env struct {
 	Port    int `default:"80"`
 	TLSPort int `default:"-1"`
 
+	// LISTEN should contain a comma-separated list of network!address pairs
+	// for the server to listen on. If ";tls" is appended to the end of a
+	// network:address pair, use TLS on that listener using GAS_TLS_CERT and
+	// GAS_TLS_KEY. If the network isn't given, it defaults to "tcp". Example:
+	//
+	//     GAS_LISTEN=":80, tcp![::1]:8080, unix!/var/run/website.sock, tcp!:https;tls"
+	//
+	// The server will listen concurrently on all listed interfaces. LISTEN
+	// supercedes PORT and TLS_PORT, which are now deprecated.
+	Listen string
+
+	// When set, the server will listen using FastCGI on the given network.
+	//
+	// Deprecated.
+	FastCGI string `default:"false"`
+
 	// Paths to the TLS certificate and key files, if TLS is enabled. Same
 	// rules as net/http.(*Server).ListenAndServeTLS.
 	TLSCert string
@@ -33,18 +49,6 @@ var Env struct {
 
 	// The hostname to send in the TLS handshake
 	TLSHost string
-
-	// When set, the server will listen using FastCGI on the named network,
-	// which is specified as network:address, network being "tcp", "unix", etc.
-	// and address being the address or socket file. same requirements as for
-	// net.Listen, except that the port number should be left to the Port
-	// environment variable; it is an error to include the port in the address
-	// here.
-	//
-	// Examples:
-	//     GAS_FAST_CGI=unix:/tmp/website.sock
-	//     GAS_FAST_CGI=tcp:[::1]
-	FastCGI string
 }
 
 // EnvPrefix is the prefix append to the field name in Env, e.g. Env.DBName
