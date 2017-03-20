@@ -40,7 +40,7 @@ var Env struct {
 	// When set, the server will listen using FastCGI on the given network.
 	//
 	// Deprecated.
-	FastCGI string `default:"false"`
+	FastCGI string
 
 	// Paths to the TLS certificate and key files, if TLS is enabled. Same
 	// rules as net/http.(*Server).ListenAndServeTLS.
