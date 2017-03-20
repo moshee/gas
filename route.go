@@ -24,8 +24,6 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-
-	"ktkr.us/pkg/vfs/bindata"
 )
 
 // A Handler can be used as a request handler for a Router.
@@ -236,27 +234,9 @@ func (r *Router) Delete(pattern string, handlers ...Handler) *Router {
 // If `root` is an empty string and files have been registered in package
 // bindata, that will be used instead of the physical filesystem. Otherwise, no
 // handlers are added to the router.
-func (r *Router) StaticHandler(prefix, root string) *Router {
-	var fs http.Handler
-	endpoint := path.Join(prefix, "static")
-	if root != "" {
-		root = filepath.Join(root, "static")
-		fs = http.FileServer(http.Dir(root))
-	} else if bindata.Root != nil {
-		f, err := bindata.Root.Open("static")
-		if err != nil {
-			log.Fatalln("route:", err)
-		}
-		if dir, ok := f.(http.FileSystem); ok {
-			fs = http.FileServer(dir)
-		} else {
-			log.Fatalf("route: 'static' dir in binfs is not a directory")
-		}
-	} else {
-		return r
-	}
-	fs = http.StripPrefix(endpoint, fs)
-	return r.Get(path.Join(endpoint, "{file}"), func(g *Gas) (int, Outputter) {
+func (r *Router) StaticHandler(urlpath string, dir http.FileSystem) *Router {
+	fs := http.StripPrefix(urlpath, http.FileServer(dir))
+	return r.Get(path.Join(urlpath, "{file}"), func(g *Gas) (int, Outputter) {
 		fs.ServeHTTP(g, g.Request)
 		return g.Stop()
 	})
@@ -366,9 +346,14 @@ func (r *Router) Ignition() error {
 	log.Print("GAS_PORT, GAS_TLS_PORT, and GAS_FAST_CGI are deprecated, please use GAS_LISTEN")
 
 	if Env.FastCGI != "" {
+		parts := strings.SplitN(Env.FastCGI, ":", 2)
+
+		if len(parts) != 2 {
+			return errors.New("invalid GAS_FAST_CGI syntax")
+		}
+
 		var (
 			port          = ":" + strconv.Itoa(Env.Port)
-			parts         = strings.SplitN(Env.FastCGI, ":", 2)
 			network, addr = parts[0], parts[1]
 			l             net.Listener
 			err           error

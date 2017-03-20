@@ -65,7 +65,7 @@ func init() {
 	gas.Init(func() {
 		var err error
 		if templateFS == nil {
-			templateFS, err = vfs.NewNativeFS(".")
+			templateFS, err = vfs.Native(".")
 			if err != nil {
 				log.Fatalf("templates: %v", err)
 			}
