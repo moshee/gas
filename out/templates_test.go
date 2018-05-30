@@ -10,17 +10,43 @@ import (
 	"ktkr.us/pkg/vfs"
 )
 
+func TestParseTemplatePath(t *testing.T) {
+	tab := []struct {
+		in  string
+		out templatePath
+	}{
+		{"", templatePath{}},
+		{"a", templatePath{"", "a"}},
+		{"ab", templatePath{"", "ab"}},
+		{"a/a", templatePath{"a", "a"}},
+		{"ab/cd", templatePath{"ab", "cd"}},
+		{"/abcd", templatePath{"", "abcd"}},
+		{"abcd/", templatePath{"", "abcd"}},
+		{"/ab/cd/ef/", templatePath{"ab/cd", "ef"}},
+	}
+
+	for _, row := range tab {
+		got := parseTemplatePath(row.in)
+		if got != row.out {
+			t.Errorf("%q: wanted %q, got %q", row.in, row.out, got)
+		}
+	}
+}
+
 func TestOutputter(t *testing.T) {
-	fs, err := vfs.NewNativeFS(".")
+	fs, err := vfs.Native(".")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	parseTemplates(fs)
+	err = parseTemplates(fs)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	r := gas.New().
 		Get("/htmltest", func(g *gas.Gas) (int, gas.Outputter) {
-			return 200, HTML("a/index", "world")
+			return 200, HTML("a/index/index", "world")
 		}).
 		Get("/jsontest", func(g *gas.Gas) (int, gas.Outputter) {
 			return 200, JSON(&struct {
@@ -33,19 +59,13 @@ func TestOutputter(t *testing.T) {
 			return 200, HTML("m/a/g/i/c", "# hi\n")
 		}).
 		Get("/htmltest3", func(g *gas.Gas) (int, gas.Outputter) {
-			return 200, HTML("something", 123)
-		}).
-		Get("/htmltest4", func(g *gas.Gas) (int, gas.Outputter) {
-			return 200, HTML("something", "abc", "layouts/parens", "layouts/brackets", "layouts/quotes")
+			return 200, HTML("something/content", 123)
 		}).
 		Get("/htmltest5", func(g *gas.Gas) (int, gas.Outputter) {
-			return 200, HTML("something", "xyz", "layouts/parens")
-		}).
-		Get("/htmltest6", func(g *gas.Gas) (int, gas.Outputter) {
-			return 200, HTML("donottrythisathome", 3, "layouts/wat")
+			return 200, HTML("something/parens", "xyz")
 		}).
 		Get("/htmltest7", func(g *gas.Gas) (int, gas.Outputter) {
-			return 200, HTML("something", "asdfasdf", "layouts/nonexistent")
+			return 200, HTML("something/nonexistent", "asdf")
 		})
 
 	srv := httptest.NewServer(r)
@@ -54,11 +74,9 @@ func TestOutputter(t *testing.T) {
 	testutil.TestGet(t, srv, "/htmltest", "Hello, world! testing!")
 	testutil.TestGet(t, srv, "/jsontest", `{"A":-203881,"B":"asdf","C":true}`+"\n")
 	testutil.TestGet(t, srv, "/htmltest2", "<h1>hi</h1>\n")
-	testutil.TestGet(t, srv, "/htmltest3", "123123123")
-	testutil.TestGet(t, srv, "/htmltest4", `(["abcabcabc"])`)
-	testutil.TestGet(t, srv, "/htmltest5", "(xyzxyzxyz)")
-	testutil.TestGet(t, srv, "/htmltest6", "3(3)3")
-	testutil.TestGet(t, srv, "/htmltest7", `no such layout "nonexistent" in path "layouts"`)
+	testutil.TestGet(t, srv, "/htmltest3", `"123"`)
+	testutil.TestGet(t, srv, "/htmltest5", `("xyz")`)
+	testutil.TestGet(t, srv, "/htmltest7", "Error: no such template: something/nonexistent")
 }
 
 func TestReroute(t *testing.T) {

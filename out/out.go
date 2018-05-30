@@ -156,5 +156,5 @@ type ErrorInfo struct {
 // Output satisfies the gas.Outputter interface.
 func (o *ErrorInfo) Output(code int, g *gas.Gas) {
 	s := strconv.Itoa(code)
-	(&templateOutputter{templatePath{"errors", s}, nil, o}).Output(code, g)
+	(&templateOutputter{templatePath{"errors", s}, o}).Output(code, g)
 }

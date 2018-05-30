@@ -10,6 +10,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -22,15 +23,35 @@ import (
 )
 
 const (
-	templateDir = "templates"
+	templateDir        = "templates"
+	templateContentDir = "content"
+	templateLayoutDir  = "layout"
 )
 
 // Each module has one associated template. It contains all of the templates
 // in its named directory inside `templates`. Each template should be
 // enclosed in a `{{ define "name" }} … {{ end }}` so that they can be referred to by
 // the other templates.
+//
+// The executable should have access to a vfs.Filesystem with the following structure:
+// "templates" with the following structure:
+//
+//     /
+//     └─templates/
+//       ├─layouts/
+//       │ └─directories/*.tmpl files...
+//       └─content/
+//         └─directories/*.tmpl files...
+//
+// The path to each .tmpl file determines how it is referred to in
+// application code, e.g. templates defined in
+// ./templates/content/a/b/c.tmpl are referred to as "a/b/c/<name>".
+//
+// All layouts get dumped into a common bucket and are cloned as a base for
+// every content template.
 var (
-	Templates    map[string]*template.Template
+	Templates map[string]*template.Template
+
 	templateLock sync.RWMutex
 	templateFS   vfs.FileSystem
 
@@ -67,14 +88,21 @@ func init() {
 		if templateFS == nil {
 			templateFS, err = vfs.Native(".")
 			if err != nil {
-				log.Fatalf("templates: %v", err)
+				log.Fatalln("templates:", err)
 			}
 		}
-		parseTemplates(templateFS)
+		err = parseTemplates(templateFS)
+		if err != nil {
+			log.Fatalln("templates: failed to load:", err)
+		}
 	})
 	gas.Hook(syscall.SIGHUP, func() {
-		parseTemplates(templateFS)
-		log.Printf("templates: reloaded all templates")
+		err := parseTemplates(templateFS)
+		if err != nil {
+			log.Printf("templates: failed to reload: %v", err)
+		} else {
+			log.Printf("templates: reloaded all templates")
+		}
 	})
 }
 
@@ -122,62 +150,90 @@ func smarkdown(s interface{}) (template.HTML, error) {
 }
 
 // recursively parse templates in a directory
-func parseTemplates(fs vfs.FileSystem) {
-	// fs should be a filesystem with a dir in the top level called
-	// "templates". Inside this dir should be an arbitrary dir tree full of
-	// *.tmpl files. The path to each .tmpl file determines how it is referred
-	// to in application code, e.g. templates defined in ./templates/a/b/c.tmpl
-	// are referred to as "a/b/<name>".
+func parseTemplates(fs vfs.FileSystem) error {
+	var (
+		templates = make(map[string]*template.Template)
+		layouts   = template.New("layouts").Funcs(globalFuncmap)
+	)
 
-	//os.MkdirAll(base, 0755)
-	templateLock.Lock()
-	defer templateLock.Unlock()
-
-	Templates = make(map[string]*template.Template)
-
-	e := fs.Walk("templates", func(path string, fi os.FileInfo, err error) error {
+	err := fs.Walk(filepath.Join(templateDir, templateLayoutDir), func(tmplPath string, fi os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-		if fi.IsDir() || filepath.Ext(path) != ".tmpl" {
+		if fi.IsDir() || filepath.Ext(tmplPath) != ".tmpl" {
 			return nil
 		}
 
-		log.Printf("templates: loading '%s'", path)
+		log.Printf("templates: loading '%s'", tmplPath)
 
-		// remove the "templates/" from the front of the path
-		name, _ := filepath.Rel(templateDir, path)
-		// drop the .tmpl file from the name
-		name = filepath.Dir(name)
-		if name == "." {
-			name = ""
-		}
-		// name should now be path without templates e.g.
-		//     templates/a/b.tmpl => "a"
-		//     templates/c.tmpl   => ""
-		//name := strings.TrimLeft(filepath.Dir(relpath), string([]rune{filepath.Separator}))
-		t, ok := Templates[name]
-		if !ok {
-			t = template.New(path).Funcs(globalFuncmap)
-			Templates[name] = t
-		}
-
-		f, err := fs.Open(path)
-		if err != nil {
-			return err
-		}
-		defer f.Close()
-		b, err := ioutil.ReadAll(f)
-		if err != nil {
-			return err
-		}
-		_, err = t.Parse(string(b))
-		return err
+		return parseFile(layouts, fs, tmplPath)
 	})
 
-	if e != nil {
-		log.Fatalf("templates: %v", e)
+	if err != nil {
+		return err
 	}
+
+	err = fs.Walk("templates/content", func(tmplPath string, fi os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if fi.IsDir() || filepath.Ext(tmplPath) != ".tmpl" {
+			return nil
+		}
+
+		log.Printf("templates: loading '%s'", tmplPath)
+
+		// remove the "templates/content" from the front of the path
+		name, _ := filepath.Rel(filepath.Join(templateDir, templateContentDir), tmplPath)
+		// drop the .tmpl file from the name
+		extlen := len(filepath.Ext(name))
+		name = name[:len(name)-extlen]
+
+		// name should now be tmplPath without extension e.g.
+		//     templates/a/b.tmpl => "a/b"
+		//     templates/c.tmpl   => "c"
+		//name := strings.TrimLeft(filepath.Dir(relpath), string([]rune{filepath.Separator}))
+		t, ok := templates[name]
+		if !ok {
+			t, err = layouts.Clone()
+			if err != nil {
+				return err
+			}
+			templates[name] = t
+		}
+
+		return parseFile(t, fs, tmplPath)
+	})
+
+	if err != nil {
+		return err
+	}
+
+	templateLock.Lock()
+	Templates = templates
+
+	for k, t := range Templates {
+		for _, tt := range t.Templates() {
+			log.Printf("%s/%s", k, tt.Name())
+		}
+	}
+	templateLock.Unlock()
+
+	return nil
+}
+
+func parseFile(t *template.Template, fs vfs.FileSystem, tmplPath string) error {
+	f, err := fs.Open(tmplPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	b, err := ioutil.ReadAll(f)
+	if err != nil {
+		return err
+	}
+	_, err = t.Parse(string(b))
+	return err
 }
 
 // represents a template location (containing path and defined name)
@@ -189,50 +245,52 @@ type templatePath struct {
 // An outputter that outputs HTML templates
 type templateOutputter struct {
 	templatePath
-	layouts []templatePath
-	data    interface{}
+	data interface{}
 }
 
 // separates a full template path including the path and name into its
 // components.
-func parseTemplatePath(path string) templatePath {
-	i := strings.LastIndex(path, "/")
-	var name string
-	if i < 0 {
-		name = path
-		path = ""
-	} else {
-		name = path[i+1:]
-		path = path[:i]
+func parseTemplatePath(p string) templatePath {
+	if p == "" {
+		return templatePath{}
 	}
-	return templatePath{path, name}
+	p = path.Clean(p)
+	dir, base := path.Split(p)
+	return templatePath{strings.Trim(dir, "/"), strings.Trim(base, "/")}
 }
 
 // HTML returns an outputter that will render the named HTML template with
 // package html/template, with data as the context, to the response. Templates
 // are named by their path and then their defined name within the template,
-// e.g. a template in ./templates/foo/bar.tmpl defined with name "quux" will be
-// called "foo/bar/quux".
+// e.g. a template in ./templates/content/foo/bar.tmpl defined with name "quux"
+// will be called "foo/bar/quux".
 //
-// Layouts are applied in order outside-in, e.g.
-// layout1(layout2(content(data))) and are each executed with the top level
-// data binding. Each layout has access to a "content" function which will
-// instruct the next layout or the content to be rendered in its place. The
-// io.Writer is injected into the function's scope in a closure, so minimal
-// buffering takes place. It is an error to call the "content" function in a
-// non-layout template.
-func HTML(path string, data interface{}, layoutPaths ...string) gas.Outputter {
-	var layouts []templatePath
-	if len(layoutPaths) > 0 {
-		layouts = make([]templatePath, len(layoutPaths))
-		for i, path := range layoutPaths {
-			layouts[i] = parseTemplatePath(path)
-		}
-	}
-
-	return &templateOutputter{parseTemplatePath(path), layouts, data}
+// Layouts can be applied using the text/template "block" functionality.
+// Content placeholders can be defined in a layout template
+// ./templates/layout/layouts.tmpl as:
+//
+//     {{ define "layout-main" }}
+//     ...
+//     {{ block "content" . }}{{ end }}
+//     ...
+//     {{ end }}
+//
+// and in the content template foo/bar:
+//
+//     {{ define "content" }}
+//     ...
+//     {{ end }}
+//
+// The set of layouts are cloned for each content template. So, due to block
+// semantics, the content can be rendered by calling HTML with path:
+//
+//     HTML("foo/bar/content/layout-main", data)
+func HTML(path string, data interface{}) gas.Outputter {
+	return &templateOutputter{parseTemplatePath(path), data}
 }
 
+// Context is passed to every template execution for holding global and local
+// state relevant to the rendering.
 type Context struct {
 	G    *gas.Gas
 	Data interface{}
@@ -240,14 +298,15 @@ type Context struct {
 	content func() (string, error)
 }
 
+// Content returns the content data for a layout template.
 func (c *Context) Content() (string, error) {
 	return c.content()
 }
 
 func (o *templateOutputter) Output(code int, g *gas.Gas) {
 	templateLock.RLock()
-	defer templateLock.RUnlock()
 	group := Templates[o.path]
+	templateLock.RUnlock()
 	var t *template.Template
 
 	if group == nil {
@@ -292,79 +351,6 @@ func (o *templateOutputter) Output(code int, g *gas.Gas) {
 		w = g
 	}
 
-	if !partial && o.layouts != nil && len(o.layouts) > 0 {
-		layouts := make([]*template.Template, len(o.layouts))
-
-		// conceptually the layouts are arranged like this
-		// [l1, l2, l3] t
-		//  ^
-		// execution starts at the beginning of the queue. l1 has a link via
-		// the closure below to l(1+1) = l2, l2 has a link to l3, and l3 has a
-		// link to t. Once the execution chain starts, each one will fire off
-		// the next one until it reaches the end, at which point the main
-		// content template is rendered. The layouts will then be rendered
-		// outside-in with the main content last (innermost).
-
-		// we need this func slice to properly close over the loop variables.
-		// Otherwise the value of n would be the final value always. The layout
-		// execution would then always skip all layouts after the first.
-		funcs := make([]func(), len(o.layouts))
-		contexts := make([]*Context, len(o.layouts))
-
-		for n, path := range o.layouts {
-			if err := (func(i int) error {
-				group, ok := Templates[path.path]
-				if !ok {
-					return fmt.Errorf("no such template path %q for layout %q", path.path, path.name)
-				}
-				layout := group.Lookup(path.name)
-				if layout == nil {
-					return fmt.Errorf("no such layout %q in path %q", path.name, path.path)
-				}
-
-				layouts[i] = layout
-
-				// closure closes over:
-				// - layouts slice so that it can access the next layout,
-				// - w so that it can write a template with minimal buffering,
-				// - i so that it knows its position,
-				// - t to render the final content.
-
-				contexts[i] = &Context{
-					G:    g,
-					Data: o.data,
-				}
-
-				funcs[i] = func() {
-					contexts[i].content = func() (string, error) {
-						// If this is the last layout in the queue, then do the
-						// data instead. Then it'll stop "recursing" to this
-						// closure.
-						if i < len(funcs)-1 {
-							funcs[i+1]()
-							return "", layouts[i+1].Execute(w, contexts[i+1])
-						}
-						return "", t.Execute(w, contexts[i])
-					}
-				}
-
-				return nil
-			})(n); err != nil {
-				log.Printf("Render: Layouts: %v", err)
-				g.WriteHeader(500)
-				fmt.Fprint(w, err)
-				return
-			}
-		}
-
-		g.WriteHeader(code)
-		funcs[0]()
-		if err := layouts[0].Execute(w, contexts[0]); err != nil {
-			fmt.Fprint(w, err)
-		}
-		return
-	}
-
 	g.WriteHeader(code)
 
 	ctx := &Context{
@@ -374,13 +360,15 @@ func (o *templateOutputter) Output(code int, g *gas.Gas) {
 
 	if err := t.Execute(w, ctx); err != nil {
 		t = Templates[o.path].Lookup(o.name + "-error")
+
 		if t == nil {
-			fmt.Fprintf(g, "Error: failed to serve error page for %s/%s (error template not found)", o.path, o.name)
-			return
-		}
-		if err = t.Execute(g, err); err != nil {
+			log.Printf("out: %v", err)
+			fmt.Fprintf(w, "%v\n", err)
+			msg := fmt.Sprintf("out: %[1]s/%[2]s: %[2]s-error template not found", o.path, o.name)
+			log.Println(msg)
+			fmt.Fprintln(w, msg)
+		} else if err = t.Execute(w, err); err != nil {
 			fmt.Fprintf(g, "Error: failed to serve error page for %s/%s (%v)", o.path, o.name, err)
-			return
 		}
 	}
 }
