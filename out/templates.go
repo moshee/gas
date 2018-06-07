@@ -154,9 +154,10 @@ func parseTemplates(fs vfs.FileSystem) error {
 	var (
 		templates = make(map[string]*template.Template)
 		layouts   = template.New("layouts").Funcs(globalFuncmap)
+		layoutDir = filepath.Join(templateDir, templateLayoutDir)
 	)
 
-	err := fs.Walk(filepath.Join(templateDir, templateLayoutDir), func(tmplPath string, fi os.FileInfo, err error) error {
+	err := fs.Walk(layoutDir, func(tmplPath string, fi os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -169,7 +170,17 @@ func parseTemplates(fs vfs.FileSystem) error {
 		return parseFile(layouts, fs, tmplPath)
 	})
 
+	abort := true
+
 	if err != nil {
+		if os.IsNotExist(err) {
+			if pe, ok := err.(*os.PathError); ok && pe.Path == layoutDir {
+				abort = false
+			}
+		}
+	}
+
+	if abort {
 		return err
 	}
 
