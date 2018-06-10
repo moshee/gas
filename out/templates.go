@@ -170,9 +170,10 @@ func parseTemplates(fs vfs.FileSystem) error {
 		return parseFile(layouts, fs, tmplPath)
 	})
 
-	abort := true
+	abort := false
 
 	if err != nil {
+		abort = true
 		if os.IsNotExist(err) {
 			if pe, ok := err.(*os.PathError); ok && pe.Path == layoutDir {
 				abort = false
