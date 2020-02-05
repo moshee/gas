@@ -155,8 +155,6 @@ func parseTemplates(fs vfs.FileSystem) error {
 		contentDir = filepath.Join(templateDir, templateContentDir)
 	)
 
-	fmt.Println(layoutDir)
-
 	err := fs.Walk(layoutDir, func(tmplPath string, fi os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -182,8 +180,6 @@ func parseTemplates(fs vfs.FileSystem) error {
 			return err
 		}
 	}
-
-	fmt.Println(contentDir)
 
 	err = fs.Walk(contentDir, func(tmplPath string, fi os.FileInfo, err error) error {
 		if err != nil {
