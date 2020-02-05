@@ -17,7 +17,7 @@ import (
 	"syscall"
 	"time"
 
-	md "github.com/russross/blackfriday"
+	md "github.com/russross/blackfriday/v2"
 	"ktkr.us/pkg/gas"
 	"ktkr.us/pkg/vfs"
 )
@@ -55,11 +55,8 @@ var (
 	templateLock sync.RWMutex
 	templateFS   vfs.FileSystem
 
-	markdownExts = md.EXTENSION_NO_INTRA_EMPHASIS | md.EXTENSION_TABLES |
-		md.EXTENSION_FENCED_CODE | md.EXTENSION_STRIKETHROUGH |
-		md.EXTENSION_FOOTNOTES
-
-	markdownRenderer = md.HtmlRenderer(md.HTML_USE_SMARTYPANTS, "", "")
+	mdExtensions = md.NoIntraEmphasis | md.FencedCode | md.Strikethrough | md.Footnotes
+	mdRenderer   = md.NewHTMLRenderer(md.HTMLRendererParameters{Flags: md.Smartypants})
 
 	globalFuncmap = template.FuncMap{
 		"string": func(b []byte) string {
@@ -130,7 +127,7 @@ func TemplateFS(fs vfs.FileSystem) {
 
 // return safe HTML of rendered markdown
 func markdown(in []byte) template.HTML {
-	return template.HTML(md.Markdown(in, markdownRenderer, markdownExts))
+	return template.HTML(md.Run(in, md.WithExtensions(mdExtensions), md.WithRenderer(mdRenderer)))
 }
 
 // return safe HTML of markdown rendered from either a string or sql.NullString
@@ -152,10 +149,13 @@ func smarkdown(s interface{}) (template.HTML, error) {
 // recursively parse templates in a directory
 func parseTemplates(fs vfs.FileSystem) error {
 	var (
-		templates = make(map[string]*template.Template)
-		layouts   = template.New("layouts").Funcs(globalFuncmap)
-		layoutDir = filepath.Join(templateDir, templateLayoutDir)
+		templates  = make(map[string]*template.Template)
+		layouts    = template.New("layouts").Funcs(globalFuncmap)
+		layoutDir  = filepath.Join(templateDir, templateLayoutDir)
+		contentDir = filepath.Join(templateDir, templateContentDir)
 	)
+
+	fmt.Println(layoutDir)
 
 	err := fs.Walk(layoutDir, func(tmplPath string, fi os.FileInfo, err error) error {
 		if err != nil {
@@ -165,26 +165,27 @@ func parseTemplates(fs vfs.FileSystem) error {
 			return nil
 		}
 
-		log.Printf("templates: loading '%s'", tmplPath)
+		log.Printf("templates: loading layout '%s'", tmplPath)
 
 		return parseFile(layouts, fs, tmplPath)
 	})
 
-	abort := true
-
 	if err != nil {
+		abort := true
 		if os.IsNotExist(err) {
 			if pe, ok := err.(*os.PathError); ok && pe.Path == layoutDir {
 				abort = false
 			}
 		}
+
+		if abort {
+			return err
+		}
 	}
 
-	if abort {
-		return err
-	}
+	fmt.Println(contentDir)
 
-	err = fs.Walk("templates/content", func(tmplPath string, fi os.FileInfo, err error) error {
+	err = fs.Walk(contentDir, func(tmplPath string, fi os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -192,10 +193,10 @@ func parseTemplates(fs vfs.FileSystem) error {
 			return nil
 		}
 
-		log.Printf("templates: loading '%s'", tmplPath)
+		log.Printf("templates: loading content '%s'", tmplPath)
 
 		// remove the "templates/content" from the front of the path
-		name, _ := filepath.Rel(filepath.Join(templateDir, templateContentDir), tmplPath)
+		name, _ := filepath.Rel(contentDir, tmplPath)
 		// drop the .tmpl file from the name
 		extlen := len(filepath.Ext(name))
 		name = name[:len(name)-extlen]

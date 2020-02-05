@@ -10,10 +10,10 @@ import (
 	"time"
 )
 
-// The configuration parameters specified as environment variables. Field names
-// in CamelCase correspond to the environment variables in SHOUTING_SNAKE_CASE.
-// They may be overridden during runtime, but note that some are only used on
-// startup (after init() and before Ignition).
+// Env is a singleton holding configuration parameters specified as environment
+// variables. Field names in CamelCase correspond to the environment variables
+// in SHOUTING_SNAKE_CASE. They may be overridden during runtime, but note that
+// some are only used on startup (after init() and before Ignition).
 var Env struct {
 	// The port for the server to listen on.
 	//

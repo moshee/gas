@@ -15,6 +15,8 @@ import (
 )
 
 var (
+	// ErrNoReroute is returned from Recover() if there was no reroute info
+	// found in the cookie.
 	ErrNoReroute = errors.New("reroute: no cookie found")
 )
 

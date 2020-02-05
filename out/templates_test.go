@@ -46,7 +46,7 @@ func TestOutputter(t *testing.T) {
 
 	r := gas.New().
 		Get("/htmltest", func(g *gas.Gas) (int, gas.Outputter) {
-			return 200, HTML("a/index/index", "world")
+			return 200, HTML("a/index/content", "world")
 		}).
 		Get("/jsontest", func(g *gas.Gas) (int, gas.Outputter) {
 			return 200, JSON(&struct {

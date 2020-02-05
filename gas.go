@@ -121,11 +121,14 @@ func (g *Gas) SetCookie(cookie *http.Cookie) {
 	http.SetCookie(g, cookie)
 }
 
+// AcceptHeader is an accepted media type with associated q-value.
 type AcceptHeader struct {
 	Type string
 	Q    float32
 }
 
+// AcceptList is a slice of AcceptHeader that can be sorted by descending
+// q-value using package sort.
 type AcceptList []AcceptHeader
 
 func (a AcceptList) Len() int           { return len(a) }
@@ -189,12 +192,15 @@ func (g *Gas) Wants() string {
 	return a[0].Type
 }
 
+// UA is a user agent.
 type UA struct {
 	Name    string
 	Version string
 	Comment string
 }
 
+// ParseUserAgents splits a User-Agent: header value into a list of individual
+// user agents.
 func ParseUserAgents(ua string) (list []UA) {
 	if ua == "" {
 		return

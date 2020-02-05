@@ -72,7 +72,7 @@ func TestUnmarshalForm(t *testing.T) {
 			t.Fatal(err)
 		}
 		if !reflect.DeepEqual(v, expected) {
-			t.Fatal("got: %#v, expected: %#v", v, expected)
+			t.Fatalf("got: %#v, expected: %#v", v, expected)
 		}
 		return g.Stop()
 	})
